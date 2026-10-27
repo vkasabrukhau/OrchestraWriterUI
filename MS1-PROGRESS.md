@@ -170,11 +170,11 @@ console errors.
 
 | Teammate | Contributions |
 |---|---|
-| Megala Sivasankar |  |
+| Megala Sivasankar | Set up Jira epics, stories, and tasks, organized team communication and project timelines, helped plan the development roadmap, and contributed to app requirements and UI library testing. |
 | Lucas Sasaya | Guided project directions and design choices based on musical background. Wrote detailed app requirements, including the complete process on how a user would use the app. Created figma screenflow. Conducted product market fit research, interviewed potential users, and narrowed project scope. |
 | Valiantsin (Val) Kasabrukhau | Proposal architecture, evaluation and risk sections. Built the Next.js front end (all screens, visualizer, design tokens) and merged the OrchestraWriter backend into it: API inside Next.js, MusicXML parser, alignment, audio engines, MP4 export, project file, unit/API/e2e test suites, CI and deploy workflows, ADRs 0004–0013 (PR #1). |
 | Xuerui (Sherry) He | Tested UI libraries for frontend animation and produced preliminary demos. Extracted loudness and pitch from audio. Compared library performances with stress tests. |
-| Zehavi Rodriguez | |
+| Zehavi Rodriguez | Guided project direction and design choices based on musical background. Contributed to app requirements and user workflows. Worked on improving the preliminary app’s functionality and overall design. Conducted user discovery. |
 | Stella Wang | Designed a spec sheet for the app that includes scope, design principles, visual directions, screen sequence, and color choices. Listed design tools and assets to direct future development. |
 | Sulaiman Khydyr uulu | Wrote OrchestraWriter backend. Designed an architecture using AWS cloud and PostgreSQL.|
 
