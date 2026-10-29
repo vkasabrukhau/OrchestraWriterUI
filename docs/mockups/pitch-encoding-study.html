@@ -1,0 +1,830 @@
+<title>Pitch Encoding Study</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Lora:ital,wght@0,500;0,600;1,500;1,600&display=swap">
+<style>
+/* Layout: Direction A "concert program" — paper page, shared transport on top,
+   two framed dark stages side by side, inspector + listening notes below. */
+:root {
+  --paper: #f6f2ea;
+  --paper-2: #fbf9f4;
+  --paper-3: #eee8dc;
+  --ink: #1d1a16;
+  --ink-2: #4b4740;
+  --ink-3: #847d72;
+  --line: rgba(29, 26, 22, 0.1);
+  --line-strong: rgba(29, 26, 22, 0.2);
+  --brass: #b5842c;
+  --brass-2: #d7ae55;
+  --brass-soft: rgba(181, 132, 44, 0.12);
+  --on-brass: #1d1a16;
+  --stage: #0b0e12;
+  --stage-3: #1a1f27;
+  --stage-text: #ece6da;
+  --stage-text-2: rgba(236, 230, 218, 0.62);
+  --serif: "Lora", Georgia, "Times New Roman", serif;
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d1014; --paper-2: #14181e; --paper-3: #1b2028;
+    --ink: #ece6da; --ink-2: #c9c2b4; --ink-3: #8f897d;
+    --line: rgba(236, 230, 218, 0.1); --line-strong: rgba(236, 230, 218, 0.2);
+    --brass: #d7ae55; --brass-2: #ecc97a; --brass-soft: rgba(215, 174, 85, 0.14);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d1014; --paper-2: #14181e; --paper-3: #1b2028;
+  --ink: #ece6da; --ink-2: #c9c2b4; --ink-3: #8f897d;
+  --line: rgba(236, 230, 218, 0.1); --line-strong: rgba(236, 230, 218, 0.2);
+  --brass: #d7ae55; --brass-2: #ecc97a; --brass-soft: rgba(215, 174, 85, 0.14);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+.wrap { max-width: 1360px; margin: 0 auto; display: grid; gap: 20px; }
+
+header.top { display: grid; gap: 6px; max-width: 72ch; }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass); }
+h1 { font-family: var(--serif); font-weight: 600; font-size: clamp(26px, 3.4vw, 38px); line-height: 1.15; margin: 0; text-wrap: balance; }
+.lede { color: var(--ink-2); margin: 0; }
+.lede small { color: var(--ink-3); font-size: 12.5px; }
+
+/* transport */
+.transport {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px;
+  background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px 16px;
+}
+.play {
+  width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer;
+  background: var(--brass-2); color: var(--on-brass); display: grid; place-items: center; flex: none;
+}
+.play:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.play svg { width: 18px; height: 18px; }
+.clock { font-variant-numeric: tabular-nums; font-weight: 500; min-width: 92px; }
+.bar { font-variant-numeric: tabular-nums; color: var(--ink-2); min-width: 92px; }
+.scrub { flex: 1 1 220px; min-width: 0; display: grid; gap: 4px; }
+.scrub input { width: 100%; accent-color: var(--brass); }
+.ticks { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.lbl { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+select {
+  font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--line-strong);
+  border-radius: 8px; padding: 4px 8px;
+}
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--ink-2); white-space: nowrap; }
+.check input { accent-color: var(--brass); margin: 0; }
+
+.presets { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pill {
+  font: inherit; font-size: 13px; cursor: pointer; color: var(--ink-2);
+  background: transparent; border: 1px solid var(--line-strong); border-radius: 999px; padding: 4px 12px;
+}
+.pill:hover { border-color: var(--brass); color: var(--ink); }
+.pill[aria-pressed="true"] { background: var(--brass-soft); border-color: var(--brass); color: var(--ink); }
+
+/* stages */
+.stages { display: grid; grid-template-columns: 1fr; gap: 20px; }
+@media (min-width: 980px) { .stages { grid-template-columns: 1fr 1fr; } }
+.panel { min-width: 0; display: grid; gap: 10px; align-content: start; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
+.panel h2 { font-family: var(--serif); font-weight: 600; font-size: 20px; margin: 0; }
+.panel h2 .tag { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--brass); margin-right: 8px; vertical-align: 2px; }
+.encodes { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.encodes li { font-size: 12px; color: var(--ink-2); background: var(--paper-3); border-radius: 6px; padding: 2px 8px; }
+.encodes b { font-weight: 600; color: var(--ink); }
+.frame { background: var(--stage); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 0 var(--line), 0 12px 32px -18px rgba(0,0,0,.45); }
+.frame canvas { display: block; width: 100%; aspect-ratio: 100 / 68; max-width: 100%; cursor: pointer; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.seg button { font: inherit; font-size: 12.5px; border: 0; background: transparent; color: var(--ink-2); padding: 4px 10px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--brass-soft); color: var(--ink); font-weight: 600; }
+
+.legend { display: grid; gap: 12px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.legend h3 { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.sizes { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.sizes figure { margin: 0; display: grid; justify-items: center; gap: 2px; }
+.sizes figcaption, .dyn { font-family: var(--serif); font-style: italic; font-weight: 600; color: var(--ink-2); }
+.ranges { display: grid; grid-template-columns: 1fr; gap: 3px 18px; }
+@media (min-width: 560px) { .ranges { grid-template-columns: 1fr 1fr; } }
+.range-row { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.track { position: relative; height: 10px; border-radius: 5px; background: var(--paper-3); }
+.span { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+.mark { position: absolute; top: -3px; width: 2px; height: 16px; background: var(--ink); border-radius: 1px; transform: translateX(-1px); opacity: 0; transition: opacity .2s; }
+.axis { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--ink-3); padding-left: 80px; }
+.secs { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); }
+.secs span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.height-key { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; font-size: 12.5px; color: var(--ink-2); }
+.height-key svg { width: 120px; height: 64px; }
+
+/* lower */
+.lower { display: grid; grid-template-columns: 1fr; gap: 20px; }
+@media (min-width: 980px) { .lower { grid-template-columns: 1fr 1fr; } }
+.card { min-width: 0; background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; display: grid; gap: 12px; align-content: start; }
+.card h2 { font-family: var(--serif); font-weight: 600; font-size: 18px; margin: 0; }
+.readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 0; }
+.readout div { display: grid; gap: 1px; }
+.readout dt { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.readout dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 500; }
+.sliders { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.slider { display: grid; grid-template-columns: 70px 1fr 64px; gap: 10px; align-items: center; }
+.slider input { width: 100%; accent-color: var(--brass); }
+.slider output { font-variant-numeric: tabular-nums; text-align: right; }
+.hold-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 12.5px; color: var(--ink-3); }
+.badge { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--brass); }
+.notes { margin: 0; padding-left: 18px; display: grid; gap: 8px; color: var(--ink-2); max-width: 70ch; }
+.notes b { color: var(--ink); font-weight: 600; }
+.jump { font: inherit; font-size: 12px; color: var(--brass); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">Orchestra Visualizer · encoding study</div>
+    <h1>Two ways to put pitch on the stage</h1>
+    <p class="lede">The same excerpt plays on both stages. On the left, the core's size shows the written dynamic and its brightness shows pitch. On the right, size shows the dynamic and the core's position in the seat shows pitch. Neither reads the audio.
+    <br><small>The excerpt is 16 bars written for this mockup (D minor, 96 bpm), synthesized in the browser. All pitches are sounding pitches.</small></p>
+  </header>
+
+  <section class="transport" aria-label="Playback">
+    <button class="play" id="play" aria-label="Play">
+      <svg viewBox="0 0 24 24" id="playIcon" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>
+    </button>
+    <div class="clock" id="clock">0:00 / 0:40</div>
+    <div class="bar" id="barNo">Bar 1 of 16</div>
+    <div class="scrub">
+      <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Position">
+      <div class="ticks" aria-hidden="true"><span>1</span><span>5</span><span>9</span><span>13</span><span>16</span></div>
+    </div>
+    <div class="group">
+      <label class="check" for="speed"><span class="lbl">Speed</span>
+        <select id="speed"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option></select>
+      </label>
+      <label class="check"><input type="checkbox" id="sound" checked> Sound</label>
+      <label class="check"><input type="checkbox" id="seats" checked> Seat outlines</label>
+      <label class="check"><input type="checkbox" id="labels" checked> Labels</label>
+      <label class="check"><input type="checkbox" id="noteNames"> Note names</label>
+      <label class="check"><input type="checkbox" id="reduced"> Reduced motion</label>
+    </div>
+    <div class="presets" role="group" aria-label="Test frames">
+      <span class="lbl">Test frames</span>
+      <button class="pill" data-preset="tutti" aria-pressed="false">Tutti fff</button>
+      <button class="pill" data-preset="quietHigh" aria-pressed="false">Everyone pp, high</button>
+      <button class="pill" data-preset="loudLow" aria-pressed="false">Everyone fff, low</button>
+      <button class="pill" data-preset="basses" aria-pressed="false">Bass line alone</button>
+      <button class="pill" data-preset="melody" aria-pressed="false">Melody over pp strings</button>
+    </div>
+  </section>
+
+  <div class="stages">
+    <section class="panel" aria-labelledby="hA">
+      <div class="panel-head">
+        <h2 id="hA"><span class="tag">A · Your proposal</span>Brightness = pitch</h2>
+        <div class="seg" role="group" aria-label="Hue for stage A">
+          <button id="hueReg" aria-pressed="true">Hue by register</button>
+          <button id="hueSec" aria-pressed="false">Hue by section</button>
+        </div>
+      </div>
+      <ul class="encodes">
+        <li><b>Solid core area</b> = written dynamic</li>
+        <li><b>Core brightness</b> = pitch, within each instrument's own range</li>
+        <li id="hueChipA"><b>Hue</b> = instrument, low instruments blue/purple</li>
+        <li><b>Blur</b> = edge only, not counted as area</li>
+      </ul>
+      <div class="frame"><canvas id="stageA" aria-label="Stage A: size shows dynamic, brightness shows pitch"></canvas></div>
+      <div class="legend">
+        <div>
+          <h3>Dynamic → solid core area (share of the seat)</h3>
+          <div class="sizes" id="sizesA"></div>
+        </div>
+        <div>
+          <h3>Pitch → core lightness, floor to ceiling per instrument</h3>
+          <div class="ranges" id="rangesA"></div>
+          <div class="axis" aria-hidden="true"><span>darker</span><span>OKLCH lightness 0.40 → 1.00</span><span>brighter</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="hB">
+      <div class="panel-head">
+        <h2 id="hB"><span class="tag">B · Alternative</span>Height in seat = pitch</h2>
+      </div>
+      <ul class="encodes">
+        <li><b>Solid core area</b> = written dynamic</li>
+        <li><b>Distance from conductor</b> inside the seat = pitch</li>
+        <li><b>Hue</b> = section (current defaults)</li>
+        <li><b>Brightness</b> = fixed</li>
+      </ul>
+      <div class="frame"><canvas id="stageB" aria-label="Stage B: size shows dynamic, position in seat shows pitch"></canvas></div>
+      <div class="legend">
+        <div>
+          <h3>Dynamic → solid core area (capped at half the seat to leave room to move)</h3>
+          <div class="sizes" id="sizesB"></div>
+        </div>
+        <div class="height-key">
+          <svg viewBox="0 0 120 64" aria-hidden="true">
+            <path d="M10 60 A 70 70 0 0 1 110 60" fill="none" stroke="currentColor" stroke-opacity=".25"/>
+            <path d="M28 60 A 52 52 0 0 1 92 60" fill="none" stroke="currentColor" stroke-opacity=".25"/>
+            <circle cx="60" cy="12" r="5" fill="#e2b04c"/>
+            <circle cx="60" cy="40" r="5" fill="#e2b04c" fill-opacity=".55"/>
+            <text x="70" y="15" font-size="9" fill="currentColor">high</text>
+            <text x="70" y="43" font-size="9" fill="currentColor">low</text>
+          </svg>
+          <div>
+            <h3>Pitch → position in the seat</h3>
+            Outer edge (away from the conductor) is the top of the instrument's range. Inner edge is the bottom.
+          </div>
+        </div>
+        <div>
+          <h3>Section</h3>
+          <div class="secs" id="secsB"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="lower">
+    <section class="card" aria-labelledby="hInspect">
+      <div class="panel-head">
+        <h2 id="hInspect">Inspect a part</h2>
+        <select id="partSel" aria-label="Part"></select>
+      </div>
+      <dl class="readout">
+        <div><dt>Note</dt><dd id="rNote">–</dd></div>
+        <div><dt>Written dynamic</dt><dd id="rDyn" class="dyn">–</dd></div>
+        <div><dt>Place in range</dt><dd id="rRange">–</dd></div>
+        <div><dt>A · lightness</dt><dd id="rL">–</dd></div>
+        <div><dt>A · core area</dt><dd id="rArea">–</dd></div>
+        <div><dt>B · height in seat</dt><dd id="rH">–</dd></div>
+      </dl>
+      <div class="sliders">
+        <div class="hold-row"><span>Move a slider to hold this part at a dynamic and pitch. Playback pauses.</span><span class="badge" id="heldBadge" hidden>Held</span><button class="pill" id="release" hidden>Release</button></div>
+        <div class="slider"><label for="dynSlider">Dynamic</label><input type="range" id="dynSlider" min="0" max="6" step="1" value="3"><output id="dynOut" class="dyn">mf</output></div>
+        <div class="slider"><label for="pitchSlider">Pitch</label><input type="range" id="pitchSlider" min="55" max="100" step="1" value="69"><output id="pitchOut">A4</output></div>
+      </div>
+      <p class="lede" style="font-size:12.5px">Tip: click a seat on either stage to inspect it.</p>
+    </section>
+
+    <section class="card" aria-labelledby="hLook">
+      <h2 id="hLook">What to look for</h2>
+      <ol class="notes">
+        <li><b>Bars 1–4.</b> Only cellos, basses, timpani and bassoon, pp to mp, low in their ranges. With the lower ceilings in A, is the opening still readable? <button class="jump" data-bar="1">Go to bar 1</button></li>
+        <li><b>Bar 13.</b> fff tutti. Every core in A fills its seat. Do rows stay separate, or do the halos join up? <button class="jump" data-bar="13">Go to bar 13</button></li>
+        <li><b>Bar 16.</b> Violin I holds a high D at pp. In A that is a small, bright core. Does it read as quiet? <button class="jump" data-bar="16">Go to bar 16</button></li>
+        <li><b>Size against brightness.</b> Try "Everyone pp, high" and "Everyone fff, low". Can you tell which stage is louder without reading the labels?</li>
+        <li><b>Number of hues.</b> The register palette in A uses 14 hues. The project rule caps it at 8–10. Switch A to "Hue by section" to compare.</li>
+      </ol>
+    </section>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ---------- encodings ----------
+  const DYN = ["pp", "p", "mp", "mf", "f", "ff", "fff"];
+  const AREA = { pp: 0.1, p: 0.18, mp: 0.28, mf: 0.4, f: 0.55, ff: 0.75, fff: 1 };
+  const LADDER = { pp: 0.22, p: 0.34, mp: 0.47, mf: 0.6, f: 0.74, ff: 0.88, fff: 1 };
+  const SEC = {
+    Strings: { hex: "#e2b04c", h: 80 },
+    Woodwinds: { hex: "#5cba9a", h: 165 },
+    Brass: { hex: "#e8705e", h: 32 },
+    Percussion: { hex: "#9298e0", h: 278 },
+  };
+  // seat = [inner r, outer r, start angle, end angle]; radius is a fraction of stage width, angle 0 = straight up
+  const PARTS = [
+    { id: "vn1", name: "Violin I", short: "Vln I", sec: "Strings", seat: [0.12, 0.29, -1.45, -0.76], hue: 88, L: [0.74, 0.95], range: [55, 100] },
+    { id: "vn2", name: "Violin II", short: "Vln II", sec: "Strings", seat: [0.12, 0.29, -0.74, -0.02], hue: 70, L: [0.72, 0.93], range: [55, 96] },
+    { id: "vla", name: "Viola", short: "Vla", sec: "Strings", seat: [0.12, 0.29, 0.02, 0.72], hue: 18, L: [0.62, 0.84], range: [48, 88] },
+    { id: "vc", name: "Cello", short: "Vc", sec: "Strings", seat: [0.12, 0.29, 0.74, 1.45], hue: 250, L: [0.52, 0.74], range: [36, 76] },
+    { id: "cb", name: "Bass", short: "Cb", sec: "Strings", seat: [0.305, 0.41, 1.0, 1.42], hue: 302, L: [0.46, 0.66], range: [28, 60] },
+    { id: "fl", name: "Flute", short: "Fl", sec: "Woodwinds", seat: [0.305, 0.395, -0.62, -0.32], hue: 105, L: [0.8, 0.97], range: [60, 98] },
+    { id: "ob", name: "Oboe", short: "Ob", sec: "Woodwinds", seat: [0.305, 0.395, -0.3, -0.01], hue: 132, L: [0.74, 0.92], range: [58, 91] },
+    { id: "cl", name: "Clarinet", short: "Cl", sec: "Woodwinds", seat: [0.305, 0.395, 0.01, 0.3], hue: 182, L: [0.66, 0.88], range: [50, 89] },
+    { id: "bn", name: "Bassoon", short: "Bsn", sec: "Woodwinds", seat: [0.305, 0.395, 0.32, 0.62], hue: 268, L: [0.5, 0.7], range: [34, 75] },
+    { id: "hn", name: "Horn", short: "Hn", sec: "Brass", seat: [0.405, 0.495, -1.0, -0.46], hue: 42, L: [0.62, 0.84], range: [34, 77] },
+    { id: "tpt", name: "Trumpet", short: "Tpt", sec: "Brass", seat: [0.405, 0.495, -0.44, 0.04], hue: 58, L: [0.74, 0.94], range: [54, 84] },
+    { id: "tbn", name: "Trombone", short: "Tbn", sec: "Brass", seat: [0.405, 0.495, 0.06, 0.48], hue: 325, L: [0.56, 0.76], range: [40, 72] },
+    { id: "tba", name: "Tuba", short: "Tba", sec: "Brass", seat: [0.405, 0.495, 0.5, 0.86], hue: 290, L: [0.46, 0.64], range: [28, 58] },
+    { id: "timp", name: "Timpani", short: "Timp", sec: "Percussion", seat: [0.505, 0.58, -0.36, 0.36], hue: 240, L: [0.5, 0.68], range: [38, 57] },
+  ];
+  const BY_ID = Object.fromEntries(PARTS.map((p) => [p.id, p]));
+  const STAGE_ASPECT = 0.68;
+  const CONDUCTOR_Y = 0.94;
+
+  // ---------- color ----------
+  function oklchToRgb(L, C, hDeg) {
+    const h = (hDeg * Math.PI) / 180;
+    const toLinear = (c) => {
+      const a = c * Math.cos(h), b = c * Math.sin(h);
+      const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+      const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+      const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+      return [
+        4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+      ];
+    };
+    let c = C, lin = toLinear(c);
+    for (let i = 0; i < 24 && lin.some((v) => v < -0.0005 || v > 1.0005); i++) { c *= 0.88; lin = toLinear(c); }
+    return lin.map((v) => {
+      v = Math.min(1, Math.max(0, v));
+      return Math.round((v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055) * 255);
+    });
+  }
+  const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+  const CHROMA = 0.15;
+  let hueMode = "register";
+  const hueOf = (p) => (hueMode === "register" ? p.hue : SEC[p.sec].h);
+  const lightnessOf = (p, pn) => p.L[0] + (p.L[1] - p.L[0]) * pn;
+
+  // ---------- score ----------
+  const BPM = 96, BEAT = 60 / BPM, BARS = 16, DUR = BARS * 4 * BEAT;
+  const PROG = ["Dm", "Dm", "Gm", "A", "Dm", "Bb", "Gm", "A", "Dm", "F", "Bb", "A", "Dm", "Bb", "Gm", "D"];
+  const CH = { Dm: [2, 5, 9], Gm: [7, 10, 2], A: [9, 1, 4], Bb: [10, 2, 5], F: [5, 9, 0], D: [2, 6, 9] };
+  const notes = Object.fromEntries(PARTS.map((p) => [p.id, []]));
+  const add = (id, bar, beat, beats, m, dyn) => notes[id].push({ t: ((bar - 1) * 4 + beat) * BEAT, d: beats * BEAT, m, dyn });
+  function tone(ch, lo, k = 0) {
+    for (let m = lo, c = -1; ; m++) if (CH[ch].includes(m % 12) && ++c === k) return m;
+  }
+  const rootAt = (ch, lo) => { for (let m = lo; ; m++) if (m % 12 === CH[ch][0]) return m; };
+  const STEP = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  const midiOf = (s) => {
+    const r = /^([A-G])(#|b)?(\d)$/.exec(s);
+    return 12 * (+r[3] + 1) + STEP[r[1]] + (r[2] === "#" ? 1 : r[2] === "b" ? -1 : 0);
+  };
+  const dynAt = (map, bar) => {
+    if (typeof map === "string") return map;
+    let d = null;
+    for (const k of Object.keys(map).map(Number).sort((a, b) => a - b)) if (k <= bar) d = map[k];
+    return d;
+  };
+  const GEN = {
+    arp: (id, b, ch, d, lo) => { for (let k = 0; k < 4; k++) add(id, b, k, 1, tone(ch, lo, k), d); },
+    hold: (id, b, ch, d, lo, k = 0) => add(id, b, 0, 4, tone(ch, lo, k), d),
+    halves: (id, b, ch, d, lo) => { const m = rootAt(ch, lo); add(id, b, 0, 2, m, d); add(id, b, 2, 2, m, d); },
+    roll: (id, b, ch, d, m) => { for (let k = 0; k < 8; k++) add(id, b, k / 2, 0.5, m, d); },
+    pulse: (id, b, ch, d, m) => { add(id, b, 0, 1, m, d); add(id, b, 2, 1, m, d); },
+  };
+  function part(id, plan) {
+    for (const [from, to, gen, lo, dmap, k] of plan)
+      for (let b = from; b <= to; b++) {
+        const ch = PROG[b - 1];
+        GEN[gen](id, b, ch, dynAt(dmap, b), typeof lo === "function" ? lo(ch) : lo, k);
+      }
+  }
+  function mel(id, bar, text) {
+    let beat = (bar - 1) * 4, dyn = "mf";
+    const tok = text.trim().split(/\s+/);
+    for (let i = 0; i < tok.length; i++) {
+      if (DYN.includes(tok[i])) { dyn = tok[i]; continue; }
+      const beats = parseFloat(tok[++i]);
+      notes[id].push({ t: beat * BEAT, d: beats * BEAT, m: midiOf(tok[i - 1]), dyn });
+      beat += beats;
+    }
+  }
+  const timpPitch = (ch) => (CH[ch].includes(2) ? 38 : 45);
+
+  mel("vn1", 5, `p D5 1 E5 1 F5 1 A5 1  Bb5 2 A5 1 G5 1  G5 1 Bb5 1 D6 2  C#6 2 E5 1 A5 1
+    f D6 1.5 C6 .5 A5 1 F5 1  A5 1 C6 1 F6 2  F6 1 D6 1 Bb5 1 D6 1  E6 1 F6 1 G6 1 A6 1
+    fff D7 2 A6 2  ff F6 1 D6 1 Bb5 1 F5 1  f G5 1 Bb5 1 A5 1 C#6 1  pp D6 4`);
+  mel("fl", 7, "mp D6 2 G6 2 E6 2 C#6 2");
+  mel("fl", 11, "f F6 1 D6 1 F6 1 Bb6 1 A6 2 C#7 2 ff D7 4 f Bb6 2 F6 2");
+  mel("tpt", 11, "f Bb4 1 D5 1 F5 2 A4 1 C#5 1 E5 2 fff D5 1 F5 1 A5 2");
+  part("cb", [[1, 16, "halves", 28, { 1: "pp", 3: "p", 9: "f", 13: "fff", 14: "ff", 15: "f", 16: "p" }]]);
+  part("vc", [[1, 4, "arp", 38, { 1: "pp", 3: "p", 4: "mp" }], [5, 8, "hold", 48, "mp"], [9, 12, "arp", 43, "f"], [13, 13, "hold", 38, "fff"], [14, 15, "arp", 41, "ff"], [16, 16, "hold", 38, "p"]]);
+  part("vla", [[5, 8, "arp", 53, "p"], [9, 12, "arp", 55, { 9: "mf", 11: "f" }], [13, 13, "hold", 62, "ff"], [14, 15, "arp", 55, "f"]]);
+  part("vn2", [[5, 8, "hold", 62, "p", 1], [9, 12, "hold", 65, "f"], [13, 13, "hold", 72, "fff"], [14, 14, "hold", 70, "ff"], [15, 15, "hold", 67, "f"], [16, 16, "hold", 66, "pp"]]);
+  part("ob", [[9, 12, "hold", 62, "mf", 1], [13, 13, "hold", 69, "f"], [14, 15, "hold", 65, "mf"]]);
+  part("cl", [[5, 8, "arp", 53, "p"], [9, 12, "hold", 60, "mf"], [13, 13, "hold", 62, "f"], [14, 15, "hold", 58, "mf"]]);
+  part("bn", [[3, 4, "arp", 38, "p"], [9, 12, "halves", 41, "mf"], [13, 15, "halves", 38, "f"]]);
+  part("hn", [[9, 12, "hold", 55, "mf", 1], [13, 13, "hold", 57, "ff"], [14, 15, "hold", 55, "f"], [16, 16, "hold", 57, "pp", 1]]);
+  part("tbn", [[11, 12, "hold", 48, "f"], [13, 13, "hold", 50, "ff"], [14, 14, "hold", 46, "f"]]);
+  part("tba", [[9, 12, "halves", 33, "mf"], [13, 13, "halves", 33, "fff"], [14, 15, "halves", 33, "f"]]);
+  part("timp", [[1, 2, "roll", timpPitch, "pp"], [4, 4, "pulse", timpPitch, "p"], [9, 12, "pulse", timpPitch, "f"], [13, 13, "roll", timpPitch, "fff"], [14, 15, "pulse", timpPitch, "f"], [16, 16, "roll", timpPitch, "pp"]]);
+  for (const id in notes) notes[id].sort((a, b) => a.t - b.t);
+
+  const NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
+  const noteName = (m) => NAMES[m % 12] + (Math.floor(m / 12) - 1);
+  const pitchNorm = (p, m) => Math.min(1, Math.max(0, (m - p.range[0]) / (p.range[1] - p.range[0])));
+
+  // ---------- state ----------
+  const live = Object.fromEntries(PARTS.map((p) => [p.id, { playing: false, dyn: "mp", m: Math.round((p.range[0] + p.range[1]) / 2), env: 0, pn: 0.5 }]));
+  let t = 0, playing = false, speed = 1, preset = null, selected = "vn1";
+  const held = {}; // id -> {dyn, m}
+  const opts = { seats: true, labels: true, noteNames: false, reduced: matchMedia("(prefers-reduced-motion: reduce)").matches };
+  document.getElementById("reduced").checked = opts.reduced;
+
+  const PRESETS = {
+    tutti: () => Object.fromEntries(PARTS.map((p) => [p.id, { dyn: "fff", pn: 0.5 }])),
+    quietHigh: () => Object.fromEntries(PARTS.map((p) => [p.id, { dyn: "pp", pn: 0.95 }])),
+    loudLow: () => Object.fromEntries(PARTS.map((p) => [p.id, { dyn: "fff", pn: 0.05 }])),
+    basses: () => ({ vc: { dyn: "f", pn: 0.3 }, cb: { dyn: "f", pn: 0.3 }, bn: { dyn: "f", pn: 0.3 }, tba: { dyn: "f", pn: 0.3 } }),
+    melody: () => ({ vn1: { dyn: "ff", pn: 0.9 }, vn2: { dyn: "pp", pn: 0.35 }, vla: { dyn: "pp", pn: 0.3 }, vc: { dyn: "pp", pn: 0.25 }, cb: { dyn: "pp", pn: 0.25 } }),
+  };
+
+  function targetFor(p) {
+    if (held[p.id]) return { playing: true, dyn: held[p.id].dyn, m: held[p.id].m };
+    if (preset) {
+      const v = PRESETS[preset]()[p.id];
+      if (!v) return { playing: false };
+      return { playing: true, dyn: v.dyn, m: Math.round(p.range[0] + (p.range[1] - p.range[0]) * v.pn) };
+    }
+    let hit = null;
+    for (const n of notes[p.id]) {
+      if (n.t > t) break;
+      if (t < n.t + n.d && (!hit || n.m > hit.m)) hit = n;
+    }
+    return hit ? { playing: true, dyn: hit.dyn, m: hit.m } : { playing: false };
+  }
+
+  function step(dt) {
+    for (const p of PARTS) {
+      const s = live[p.id], tg = targetFor(p);
+      s.playing = tg.playing;
+      if (tg.playing) { s.dyn = tg.dyn; s.m = tg.m; }
+      const envTarget = tg.playing ? 1 : 0;
+      const pnTarget = pitchNorm(p, s.m);
+      if (opts.reduced || dt > 0.5) { s.env = envTarget; s.pn = pnTarget; continue; }
+      const tau = envTarget > s.env ? 0.08 : 0.25;
+      s.env += (envTarget - s.env) * (1 - Math.exp(-dt / tau));
+      s.pn += (pnTarget - s.pn) * (1 - Math.exp(-dt / 0.12));
+    }
+  }
+
+  // ---------- stages ----------
+  function makeStage(id, mode) {
+    const canvas = document.getElementById(id);
+    const st = { canvas, ctx: canvas.getContext("2d"), mode, W: 1, H: 1, dpr: 1 };
+    const fit = () => {
+      const w = canvas.getBoundingClientRect().width || 600;
+      st.W = w; st.H = w * STAGE_ASPECT; st.dpr = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.round(st.W * st.dpr); canvas.height = Math.round(st.H * st.dpr);
+    };
+    new ResizeObserver(fit).observe(canvas);
+    fit();
+    canvas.addEventListener("click", (e) => {
+      const r = canvas.getBoundingClientRect();
+      const dx = (e.clientX - r.left - st.W / 2) / st.W;
+      const dy = (st.H * CONDUCTOR_Y - (e.clientY - r.top)) / st.W;
+      const rad = Math.hypot(dx, dy), ang = Math.atan2(dx, dy);
+      const p = PARTS.find(({ seat: [r0, r1, a0, a1] }) => rad >= r0 && rad <= r1 && ang >= a0 && ang <= a1);
+      if (p) select(p.id);
+    });
+    return st;
+  }
+  const stages = [makeStage("stageA", "A"), makeStage("stageB", "B")];
+
+  function sector(ctx, cx, cy, W, r0, r1, a0, a1) {
+    const q = Math.PI / 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r1 * W, a0 - q, a1 - q);
+    ctx.arc(cx, cy, Math.max(0.001, r0 * W), a1 - q, a0 - q, true);
+    ctx.closePath();
+  }
+
+  function coreFor(mode, p) {
+    const s = live[p.id];
+    const [r0, r1, a0, a1] = p.seat;
+    const rc = (r0 + r1) / 2, hr = (r1 - r0) / 2, ac = (a0 + a1) / 2, ha = (a1 - a0) / 2;
+    if (mode === "A") {
+      const k = Math.sqrt(AREA[s.dyn]);
+      return {
+        r0: rc - hr * k, r1: rc + hr * k, a0: ac - ha * k, a1: ac + ha * k, k,
+        rgb: oklchToRgb(lightnessOf(p, s.pn), CHROMA, hueOf(p)), alpha: s.env,
+      };
+    }
+    const f = AREA[s.dyn] * 0.5;
+    const rf = Math.min(0.92, Math.sqrt(f) * 0.8), af = Math.min(0.95, f / rf);
+    const rh = hr * rf, center = r0 + rh + (r1 - r0 - 2 * rh) * s.pn;
+    return { r0: center - rh, r1: center + rh, a0: ac - ha * af, a1: ac + ha * af, k: Math.sqrt(f), rgb: hexRgb(SEC[p.sec].hex), alpha: s.env };
+  }
+
+  const OFF = 20000;
+  function draw(st) {
+    const { ctx, W, H, dpr } = st;
+    const cx = W / 2, cy = H * CONDUCTOR_Y, u = W / 640;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.75);
+    bg.addColorStop(0, "#1a1f27"); bg.addColorStop(0.55, "#12161c"); bg.addColorStop(1, "#0b0e12");
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+    for (const p of PARTS) {
+      const isSel = p.id === selected;
+      if (!opts.seats && !isSel) continue;
+      sector(ctx, cx, cy, W, ...p.seat);
+      if (opts.seats) { ctx.fillStyle = "rgba(255,255,255,0.025)"; ctx.fill(); }
+      ctx.lineWidth = isSel ? 1.5 : 1;
+      ctx.setLineDash(isSel ? [4, 4] : []);
+      ctx.strokeStyle = isSel ? "rgba(236,201,122,0.85)" : "rgba(255,255,255,0.11)";
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    const cores = PARTS.map((p) => coreFor(st.mode, p));
+    // halos: shadow of an off-canvas copy, so only the blur lands on the stage
+    ctx.globalCompositeOperation = "screen";
+    for (const c of cores) {
+      if (c.alpha < 0.01) continue;
+      ctx.save();
+      ctx.shadowColor = rgba(c.rgb, 0.7 * c.alpha);
+      ctx.shadowBlur = (10 + 14 * c.k) * u * dpr;
+      ctx.shadowOffsetX = OFF * dpr;
+      ctx.translate(-OFF, 0);
+      sector(ctx, cx, cy, W, c.r0, c.r1, c.a0, c.a1);
+      ctx.fillStyle = "#000";
+      ctx.fill();
+      ctx.restore();
+    }
+    // solid cores: the only part that counts as area
+    ctx.globalCompositeOperation = "source-over";
+    ctx.lineJoin = "round";
+    for (const c of cores) {
+      if (c.alpha < 0.01) continue;
+      sector(ctx, cx, cy, W, c.r0, c.r1, c.a0, c.a1);
+      ctx.fillStyle = rgba(c.rgb, c.alpha);
+      ctx.fill();
+      ctx.strokeStyle = rgba(c.rgb, c.alpha);
+      ctx.lineWidth = 2.5 * u;
+      ctx.stroke();
+    }
+
+    if (opts.labels) drawLabels(ctx, cx, cy, W, u);
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(4, 6 * u), 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  function drawLabels(ctx, cx, cy, W, u) {
+    const nameSize = Math.max(7, Math.min(11, 8.5 * u));
+    const dynSize = Math.max(10, Math.min(17, 13 * u));
+    const compact = W < 520;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.lineJoin = "round";
+    for (const p of PARTS) {
+      const s = live[p.id];
+      const [r0, r1, a0, a1] = p.seat;
+      const rc = (r0 + r1) / 2, ac = (a0 + a1) / 2;
+      const x = cx + Math.sin(ac) * rc * W, y = cy - Math.cos(ac) * rc * W;
+      const on = s.env > 0.5;
+      ctx.globalAlpha = on ? 1 : 0.4;
+      ctx.font = `600 ${nameSize}px Inter, system-ui, sans-serif`;
+      if ("letterSpacing" in ctx) ctx.letterSpacing = compact ? "0px" : "1px";
+      const name = compact ? p.short : p.name.toUpperCase();
+      ctx.strokeStyle = "rgba(8,10,13,0.7)"; ctx.lineWidth = 3;
+      ctx.strokeText(name, x, y - 1);
+      ctx.fillStyle = "#ece6da";
+      ctx.fillText(name, x, y - 1);
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+      if (on) {
+        const dynText = s.dyn;
+        const nn = opts.noteNames ? " " + noteName(s.m) : "";
+        ctx.font = `italic 600 ${dynSize}px Lora, Georgia, serif`;
+        const w1 = ctx.measureText(dynText).width;
+        ctx.font = `500 ${nameSize}px Inter, system-ui, sans-serif`;
+        const w2 = nn ? ctx.measureText(nn).width : 0;
+        let xs = x - (w1 + w2) / 2;
+        const yd = y + dynSize * 0.95;
+        ctx.textAlign = "left";
+        ctx.font = `italic 600 ${dynSize}px Lora, Georgia, serif`;
+        ctx.strokeText(dynText, xs, yd); ctx.fillText(dynText, xs, yd);
+        if (nn) {
+          ctx.font = `500 ${nameSize}px Inter, system-ui, sans-serif`;
+          ctx.strokeText(nn, xs + w1, yd); ctx.fillText(nn, xs + w1, yd);
+        }
+        ctx.textAlign = "center";
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------- audio ----------
+  let ac = null, bus = null, scheduledFrom = 0;
+  const scheduled = new Set();
+  const soundBox = document.getElementById("sound");
+  function audioStart() {
+    if (!soundBox.checked) return;
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      ac.resume();
+      bus = ac.createGain();
+      bus.gain.value = 0.55;
+      const comp = ac.createDynamicsCompressor();
+      bus.connect(comp).connect(ac.destination);
+      scheduled.clear();
+      scheduledFrom = t;
+    } catch { bus = null; }
+  }
+  function audioStop() {
+    if (!bus || !ac) return;
+    const b = bus;
+    b.gain.setTargetAtTime(0, ac.currentTime, 0.02);
+    setTimeout(() => b.disconnect(), 250);
+    bus = null;
+  }
+  function voice(p, n, when, dur) {
+    const o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain();
+    o.type = p.sec === "Woodwinds" ? "triangle" : p.sec === "Percussion" ? "sine" : "sawtooth";
+    o.frequency.value = 440 * 2 ** ((n.m - 69) / 12);
+    f.type = "lowpass";
+    f.frequency.value = p.sec === "Brass" ? 1500 : p.sec === "Strings" ? 2400 : 3200;
+    const peak = (0.01 + LADDER[n.dyn] * 0.045) * (p.sec === "Woodwinds" ? 1.5 : p.sec === "Percussion" ? 3 : 1);
+    g.gain.setValueAtTime(0, when);
+    if (p.sec === "Percussion") {
+      g.gain.linearRampToValueAtTime(peak, when + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0005, when + Math.max(0.15, Math.min(dur, 0.6)));
+    } else {
+      g.gain.linearRampToValueAtTime(peak, when + 0.04);
+      g.gain.setValueAtTime(peak, when + Math.max(0.05, dur - 0.05));
+      g.gain.linearRampToValueAtTime(0, when + dur + 0.04);
+    }
+    o.connect(f).connect(g).connect(bus);
+    o.start(when);
+    o.stop(when + dur + 0.1);
+  }
+  function audioPump() {
+    if (!bus || !playing || preset) return;
+    const now = ac.currentTime, horizon = 0.3 * speed;
+    for (const p of PARTS) {
+      if (held[p.id]) continue;
+      notes[p.id].forEach((n, i) => {
+        const key = p.id + i;
+        if (scheduled.has(key) || n.t < scheduledFrom - 0.01 || n.t > t + horizon || n.t < t - 0.05) return;
+        scheduled.add(key);
+        voice(p, n, now + Math.max(0, (n.t - t) / speed), n.d / speed);
+      });
+    }
+  }
+
+  // ---------- transport ----------
+  const $ = (id) => document.getElementById(id);
+  const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  const barAt = (time) => Math.min(BARS, Math.floor(time / (4 * BEAT)) + 1);
+  const PLAY_ICON = '<path d="M7 4.5v15l13-7.5z" fill="currentColor"/>';
+  const PAUSE_ICON = '<rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor"/>';
+  function setPlaying(v) {
+    playing = v;
+    $("playIcon").innerHTML = v ? PAUSE_ICON : PLAY_ICON;
+    $("play").setAttribute("aria-label", v ? "Pause" : "Play");
+    if (v) { setPreset(null); releaseHold(); audioStart(); } else audioStop();
+  }
+  function seek(time) {
+    t = Math.max(0, Math.min(DUR - 0.001, time));
+    if (playing) { audioStop(); audioStart(); }
+  }
+  $("play").addEventListener("click", () => setPlaying(!playing));
+  $("scrub").addEventListener("input", (e) => { setPreset(null); seek((e.target.value / 1000) * DUR); });
+  $("speed").addEventListener("change", (e) => { speed = +e.target.value; if (playing) { audioStop(); audioStart(); } });
+  soundBox.addEventListener("change", () => { if (playing) { soundBox.checked ? audioStart() : audioStop(); } });
+  for (const k of ["seats", "labels", "noteNames", "reduced"]) $(k).addEventListener("change", (e) => (opts[k] = e.target.checked));
+  document.querySelectorAll(".jump").forEach((b) => b.addEventListener("click", () => {
+    setPreset(null); releaseHold(); seek((+b.dataset.bar - 1) * 4 * BEAT); if (!playing) setPlaying(true);
+  }));
+
+  function setPreset(name) {
+    preset = name;
+    document.querySelectorAll("[data-preset]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.preset === name)));
+  }
+  document.querySelectorAll("[data-preset]").forEach((b) => b.addEventListener("click", () => {
+    const next = preset === b.dataset.preset ? null : b.dataset.preset;
+    if (playing) setPlaying(false);
+    releaseHold();
+    setPreset(next);
+  }));
+
+  // ---------- hue mode ----------
+  function setHueMode(m) {
+    hueMode = m;
+    $("hueReg").setAttribute("aria-pressed", String(m === "register"));
+    $("hueSec").setAttribute("aria-pressed", String(m === "section"));
+    $("hueChipA").innerHTML = m === "register" ? "<b>Hue</b> = instrument, low instruments blue/purple" : "<b>Hue</b> = section";
+    buildRanges();
+  }
+  $("hueReg").addEventListener("click", () => setHueMode("register"));
+  $("hueSec").addEventListener("click", () => setHueMode("section"));
+
+  // ---------- legends ----------
+  function buildSizes(el, scale) {
+    const max = 34;
+    el.innerHTML = DYN.map((d) => {
+      const r = Math.max(2, (max / 2) * Math.sqrt(AREA[d] * scale));
+      return `<figure><svg width="${max}" height="${max}" viewBox="0 0 ${max} ${max}" aria-hidden="true">
+        <circle cx="${max / 2}" cy="${max / 2}" r="${max / 2 - 0.5}" fill="none" stroke="currentColor" stroke-opacity=".2"/>
+        <circle cx="${max / 2}" cy="${max / 2}" r="${r}" fill="var(--brass-2)"/></svg><figcaption>${d}</figcaption></figure>`;
+    }).join("");
+  }
+  buildSizes($("sizesA"), 1);
+  buildSizes($("sizesB"), 0.5);
+  $("secsB").innerHTML = Object.entries(SEC).map(([n, v]) => `<span><i class="dot" style="background:${v.hex}"></i>${n}</span>`).join("");
+
+  const LMIN = 0.4, LMAX = 1.0;
+  const markers = {};
+  function buildRanges() {
+    $("rangesA").innerHTML = PARTS.map((p) => {
+      const lo = oklchToRgb(p.L[0], CHROMA, hueOf(p)), hi = oklchToRgb(p.L[1], CHROMA, hueOf(p));
+      const left = ((p.L[0] - LMIN) / (LMAX - LMIN)) * 100, width = ((p.L[1] - p.L[0]) / (LMAX - LMIN)) * 100;
+      return `<div class="range-row"><span>${p.name}</span><div class="track">
+        <div class="span" style="left:${left}%;width:${width}%;background:linear-gradient(90deg,${rgba(lo, 1)},${rgba(hi, 1)})"></div>
+        <div class="mark" data-mark="${p.id}"></div></div></div>`;
+    }).join("");
+    document.querySelectorAll("[data-mark]").forEach((m) => (markers[m.dataset.mark] = m));
+  }
+  buildRanges();
+
+  // ---------- inspector ----------
+  const sel = $("partSel");
+  sel.innerHTML = PARTS.map((p) => `<option value="${p.id}">${p.name}</option>`).join("");
+  sel.addEventListener("change", () => select(sel.value));
+  function select(id) {
+    selected = id;
+    sel.value = id;
+    const p = BY_ID[id], s = live[id];
+    const ps = $("pitchSlider");
+    ps.min = p.range[0]; ps.max = p.range[1];
+    ps.value = held[id] ? held[id].m : s.m;
+    $("dynSlider").value = DYN.indexOf(held[id] ? held[id].dyn : s.dyn);
+    syncHoldUi();
+  }
+  function holdFromSliders() {
+    if (playing) setPlaying(false);
+    if (preset) setPreset(null);
+    held[selected] = { dyn: DYN[+$("dynSlider").value], m: +$("pitchSlider").value };
+    syncHoldUi();
+  }
+  function releaseHold() {
+    for (const k in held) delete held[k];
+    syncHoldUi();
+  }
+  function syncHoldUi() {
+    const h = !!held[selected];
+    $("heldBadge").hidden = !h;
+    $("release").hidden = Object.keys(held).length === 0;
+  }
+  $("dynSlider").addEventListener("input", holdFromSliders);
+  $("pitchSlider").addEventListener("input", holdFromSliders);
+  $("release").addEventListener("click", releaseHold);
+
+  function updateHud() {
+    $("clock").textContent = `${fmt(t)} / ${fmt(DUR)}`;
+    $("barNo").textContent = preset ? "Test frame" : `Bar ${barAt(t)} of ${BARS}`;
+    if (document.activeElement !== $("scrub")) $("scrub").value = Math.round((t / DUR) * 1000);
+    for (const p of PARTS) {
+      const s = live[p.id], m = markers[p.id];
+      if (!m) continue;
+      m.style.left = `${((lightnessOf(p, s.pn) - LMIN) / (LMAX - LMIN)) * 100}%`;
+      m.style.opacity = s.env > 0.5 ? 1 : 0;
+    }
+    const p = BY_ID[selected], s = live[selected];
+    const on = s.env > 0.5;
+    $("rNote").textContent = on ? `${noteName(s.m)} · MIDI ${s.m}` : "silent";
+    $("rDyn").textContent = on ? s.dyn : "–";
+    $("rRange").textContent = on ? `${Math.round(pitchNorm(p, s.m) * 100)}% of ${noteName(p.range[0])}–${noteName(p.range[1])}` : "–";
+    $("rL").textContent = on ? `${lightnessOf(p, s.pn).toFixed(2)} (range ${p.L[0].toFixed(2)}–${p.L[1].toFixed(2)})` : "–";
+    $("rArea").textContent = on ? `${Math.round(AREA[s.dyn] * 100)}% of seat` : "–";
+    $("rH").textContent = on ? `${Math.round(s.pn * 100)}% out from inner edge` : "–";
+    $("dynOut").textContent = DYN[+$("dynSlider").value];
+    $("pitchOut").textContent = noteName(+$("pitchSlider").value);
+    if (!held[selected] && document.activeElement !== $("dynSlider") && document.activeElement !== $("pitchSlider")) {
+      if (on) { $("dynSlider").value = DYN.indexOf(s.dyn); $("pitchSlider").value = s.m; }
+    }
+  }
+
+  // ---------- loop ----------
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (playing) {
+      t += dt * speed;
+      if (t >= DUR) { t = 0; if (bus) { audioStop(); audioStart(); } }
+    }
+    audioPump();
+    step(dt);
+    stages.forEach(draw);
+    updateHud();
+    requestAnimationFrame(frame);
+  }
+  // open on a busy, readable moment (bar 9) so the still frame shows both encodings
+  t = 8 * 4 * BEAT + 0.3;
+  step(1);
+  select("vn1");
+  requestAnimationFrame(frame);
+})();
+</script>
