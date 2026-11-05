@@ -98,6 +98,15 @@ export const env = {
     .map((o) => o.trim())
     .filter(Boolean),
 
+  // Local audio-to-score service (ml/server.py, MuScriptor). Locally it defaults
+  // to http://127.0.0.1:8333; unset in production unless TRANSCRIBER_URL is set.
+  transcriber: {
+    url: localOptional("TRANSCRIBER_URL", "http://127.0.0.1:8333"),
+    // Only an explicit TRANSCRIBER_URL replaces the placeholder in the
+    // /api/transcriptions pipeline's model slot (pipeline/model.ts).
+    explicit: Boolean(process.env.TRANSCRIBER_URL),
+  },
+
   // Transcription pipeline. "stepfunctions" in production (STATE_MACHINE_ARN set),
   // "inline" locally: the same step code runs inside the API process, no AWS needed.
   pipeline: {

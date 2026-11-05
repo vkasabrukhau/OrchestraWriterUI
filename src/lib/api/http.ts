@@ -7,7 +7,7 @@
  */
 import type { ActivityItem, ProjectSummary } from "@/shared/domain";
 import type { InfoMap } from "@/shared/info-map";
-import type { AlignResult, AudioUploadResult, ExportResult, Job, JobKind, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
+import type { AlignResult, AudioUploadResult, ExportResult, Job, JobKind, OpenProjectResult, ParseScoreResult, TranscribeScoreResult } from "@/shared/jobs";
 import type { DisplaySettings, ProjectFile } from "@/shared/project-file";
 import { mergeAlignment, UNCERTAIN_THRESHOLD, type SyncState } from "@/shared/sync";
 import type {
@@ -280,6 +280,20 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
 
     async uploadAudio(projectId, file) {
       return startJob<AudioUploadResult>("upload-audio", (ctx) => uploadAndRegisterAudio(projectId, file, file.name, file.type || "audio/mpeg", ctx, 0, 1));
+    },
+
+    async transcribeScore(projectId) {
+      return startJob<TranscribeScoreResult>("transcribe", async (ctx) => {
+        ctx.report(0.01, "Starting transcription");
+        const { job: remote } = await request<{ job: JobDto }>(`/projects/${enc(projectId)}/transcribe-score`, { method: "POST" });
+        const done = await pollRemoteJob<TranscribeScoreResult>(ctx.id, remote.id, 0.01, 0.9, ctx.signal);
+        if (done.status === "failed" || !done.result) throw new Error(done.error ?? "The transcription failed");
+        // The transcribed score is imported by a normal parse-score job.
+        const parsed = await pollRemoteJob<ParseScoreResult>(ctx.id, done.result.parseJobId, 0.9, 1, ctx.signal);
+        invalidate(projectId);
+        if (parsed.status === "failed") throw new Error(parsed.error ?? "The transcribed score could not be read");
+        return done.result;
+      });
     },
 
     async removeAudio(projectId) {

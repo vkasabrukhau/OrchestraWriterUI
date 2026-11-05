@@ -41,6 +41,19 @@ export interface ParseScoreResult {
   warnings: string[];
 }
 
+/** Experimental: a score transcribed from the recording (ml/server.py, MuScriptor). */
+export interface TranscribeScoreResult {
+  /** detected instruments, one score part each */
+  parts: string[];
+  bpm: number | null;
+  /** e.g. "muscriptor-medium" */
+  model: string;
+  /** wall-clock seconds the model took */
+  seconds: number;
+  /** the parse-score job that imports the transcribed score */
+  parseJobId: string;
+}
+
 export interface AudioUploadResult {
   filename: string;
   durationSec: number;

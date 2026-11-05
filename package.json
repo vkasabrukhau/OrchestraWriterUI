@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "ml:serve": "cd ml && uv run uvicorn server:app --host 127.0.0.1 --port 8333",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

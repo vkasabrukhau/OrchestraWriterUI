@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, ArrowRight, AudioLines, FolderOpen, Music2, RefreshCw, Upload } from "lucide-react";
-import type { AudioUploadResult, Job, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
+import { AlertTriangle, ArrowLeft, ArrowRight, AudioLines, FolderOpen, Music2, RefreshCw, Sparkles, Upload } from "lucide-react";
+import type { AudioUploadResult, Job, OpenProjectResult, ParseScoreResult, TranscribeScoreResult } from "@/shared/jobs";
 import { api } from "@/lib/api";
 import { useProject } from "@/lib/store/project";
 import { usePlayback } from "@/lib/store/playback";
@@ -112,6 +112,19 @@ export function ImportPage({ projectId }: { projectId: string }) {
     onSucceeded: onAudioDone,
   });
 
+  // Experimental: no score, but a recording → transcribe one (local MuScriptor service).
+  const transcribe = useProjectJob<TranscribeScoreResult>(`${projectId}:transcribe`, { onSucceeded: onScoreDone });
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  const startTranscribe = async () => {
+    setTranscribeError(null);
+    try {
+      await transcribe.start(() => api.transcribeScore(projectId));
+    } catch (err) {
+      setTranscribeError(err instanceof Error ? err.message : "The transcription could not start.");
+    }
+  };
+  const transcribing = isRunning(transcribe.job);
+
   const hasScore = Boolean(summary?.scoreName);
   // A parse that started on an earlier visit (no local job): the server reports it.
   const serverParsing = !score.job && hasScore && summary?.status === "importing";
@@ -123,7 +136,9 @@ export function ImportPage({ projectId }: { projectId: string }) {
     return () => clearInterval(t);
   }, [serverParsing, refresh]);
 
-  const scorePhase: Phase = score.typeError || score.startError
+  const scorePhase: Phase = transcribing
+    ? "processing"
+    : score.typeError || score.startError
     ? "failed"
     : score.job
       ? score.job.status === "succeeded"
@@ -203,6 +218,12 @@ export function ImportPage({ projectId }: { projectId: string }) {
           facts={facts}
           serverMessage={serverParsing ? (summary?.statusDetail ?? "Parsing score") : null}
           serverError={serverFailed ? (summary?.statusDetail ?? "The score could not be read.") : null}
+          transcribe={{
+            available: Boolean(summary?.hasRecording) && audioPhase === "done",
+            job: transcribe.job,
+            error: transcribeError ?? (transcribe.job?.status === "failed" ? (transcribe.job.error ?? "The transcription failed.") : null),
+            start: () => void startTranscribe(),
+          }}
         />
         <RecordingCard upload={audio} phase={audioPhase} name={audio.file?.name ?? summary?.recordingName ?? ""} />
       </div>
@@ -232,6 +253,7 @@ function ScoreCard({
   facts,
   serverMessage,
   serverError,
+  transcribe,
 }: {
   upload: ReturnType<typeof useUpload<ParseScoreResult>>;
   phase: Phase;
@@ -239,6 +261,7 @@ function ScoreCard({
   facts: ScoreFacts | null;
   serverMessage: string | null;
   serverError: string | null;
+  transcribe: TranscribeControls;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const pick = () => inputRef.current?.click();
@@ -267,7 +290,16 @@ function ScoreCard({
         </Dropzone>
       )}
 
-      {busy && (
+      {phase === "empty" && transcribe.available && <TranscribeOffer transcribe={transcribe} />}
+
+      {busy && isRunning(transcribe.job) && (
+        <ProcessingBox name="Transcribing the recording (experimental)">
+          <JobLine job={transcribe.job!} />
+          <p className="mt-2 text-xs text-ink-3">Runs on this computer and can take several minutes. You can leave this page.</p>
+        </ProcessingBox>
+      )}
+
+      {busy && !isRunning(transcribe.job) && (
         <ProcessingBox name={name} size={upload.file?.size}>
           {job ? <JobLine job={job} /> : <ProgressLine message={serverMessage ?? "Parsing score"} indeterminate />}
         </ProcessingBox>
@@ -335,6 +367,35 @@ function ScoreFactsView({ name, facts }: { name: string; facts: ScoreFacts }) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+interface TranscribeControls {
+  available: boolean;
+  job: Job<TranscribeScoreResult> | null;
+  error: string | null;
+  start: () => void;
+}
+
+/** Experimental: make the score from the recording instead of uploading one. */
+function TranscribeOffer({ transcribe }: { transcribe: TranscribeControls }) {
+  return (
+    <div className="mt-3 rounded-[var(--radius-lg)] border border-dashed border-line p-3 text-[13px]">
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="min-w-0 flex-1 text-ink-2">
+          No score? Transcribe one from the recording.{" "}
+          <span className="text-ink-3">Experimental: notes and instruments are guessed by MuScriptor, and there are no written dynamics.</span>
+        </p>
+        <Button variant="outline" size="sm" leading={<Sparkles size={13} />} onClick={transcribe.start}>
+          {transcribe.error ? "Try again" : "Transcribe"}
+        </Button>
+      </div>
+      {transcribe.error && (
+        <p className="mt-2 text-danger" role="alert">
+          {transcribe.error}
+        </p>
       )}
     </div>
   );

@@ -9,6 +9,7 @@ import type { SyncState } from "@/shared/sync";
 import { ValidationError } from "../errors";
 import * as exportsService from "../services/exports";
 import * as projects from "../services/projects";
+import { startTranscribeScore } from "../services/transcribe-score";
 import { requireUser, type AuthEnv } from "./session";
 import {
   bool,
@@ -79,6 +80,12 @@ projectsRoutes.post("/:id/score", async (c) => {
     filename: str(body.filename, "filename", { min: 1, max: 255 }),
   });
   return c.json(result, 202);
+});
+
+/** Experimental: transcribe the project's recording into its score (local MuScriptor service). */
+projectsRoutes.post("/:id/transcribe-score", async (c) => {
+  const job = await startTranscribeScore(c.get("userId"), projectId(c));
+  return c.json({ job }, 202);
 });
 
 function parsePeaks(value: unknown): number[] | undefined {
