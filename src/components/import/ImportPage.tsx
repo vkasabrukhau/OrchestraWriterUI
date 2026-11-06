@@ -290,7 +290,7 @@ function ScoreCard({
         </Dropzone>
       )}
 
-      {phase === "empty" && transcribe.available && <TranscribeOffer transcribe={transcribe} />}
+      {phase === "empty" && <TranscribeOffer transcribe={transcribe} />}
 
       {busy && isRunning(transcribe.job) && (
         <ProcessingBox name="Transcribing the recording (experimental)">
@@ -386,9 +386,13 @@ function TranscribeOffer({ transcribe }: { transcribe: TranscribeControls }) {
       <div className="flex flex-wrap items-center gap-3">
         <p className="min-w-0 flex-1 text-ink-2">
           No score? Transcribe one from the recording.{" "}
-          <span className="text-ink-3">Experimental: notes and instruments are guessed by MuScriptor, and there are no written dynamics.</span>
+          <span className="text-ink-3">
+            {transcribe.available
+              ? "Experimental: notes and instruments are guessed by MuScriptor, and there are no written dynamics."
+              : "Upload an MP3 under Recording first."}
+          </span>
         </p>
-        <Button variant="outline" size="sm" leading={<Sparkles size={13} />} onClick={transcribe.start}>
+        <Button variant="outline" size="sm" leading={<Sparkles size={13} />} onClick={transcribe.start} disabled={!transcribe.available}>
           {transcribe.error ? "Try again" : "Transcribe"}
         </Button>
       </div>
