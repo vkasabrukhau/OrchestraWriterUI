@@ -37,6 +37,21 @@ MODEL_NAME = os.environ.get("MUSCRIPTOR_MODEL", "medium")
 DEVICE = os.environ.get("MUSCRIPTOR_DEVICE") or None
 MAX_BYTES = 500 * 1024 * 1024  # matches the recording upload cap
 
+# Which instruments the model may write (MuScriptor's group names). Left free,
+# it often hears a string orchestra as guitar + electric bass; limiting it to
+# orchestral instruments is a hard constraint on decoding. "string_ensemble"
+# is left out on purpose so strings split into violin / viola / cello / bass.
+ENSEMBLES: dict[str, list[str] | None] = {
+    "orchestra": [
+        "violin", "viola", "cello", "contrabass", "orchestral_harp",
+        "flutes", "oboe", "english_horn", "clarinet", "bassoon",
+        "french_horn", "trumpet", "trombone", "tuba", "timpani",
+        "chromatic_percussion", "acoustic_piano", "organ",
+    ],
+    "strings": ["violin", "viola", "cello", "contrabass", "acoustic_piano", "organ"],
+    "any": None,
+}
+
 app = FastAPI(title="Orchestra transcriber")
 _lock = threading.Lock()
 _model = None
@@ -122,12 +137,14 @@ _jobs: dict[str, dict] = {}
 
 
 @app.post("/score", status_code=202)
-async def score(request: Request, filename: str = "audio.mp3", title: str = ""):
+async def score(request: Request, filename: str = "audio.mp3", title: str = "", ensemble: str = "orchestra"):
     """Start transcribing the whole recording into one multi-part MusicXML score."""
+    if ensemble not in ENSEMBLES:
+        raise HTTPException(400, f"ensemble must be one of: {', '.join(ENSEMBLES)}")
     path = await _audio_file(request, filename)
     job_id = uuid.uuid4().hex
     _jobs[job_id] = {"status": "running", "progress": 0.0, "message": "Waiting for the model", "result": None, "error": None}
-    threading.Thread(target=_run_score, args=(job_id, path, title or Path(filename).stem), daemon=True).start()
+    threading.Thread(target=_run_score, args=(job_id, path, title or Path(filename).stem, ENSEMBLES[ensemble]), daemon=True).start()
     return {"id": job_id}
 
 
@@ -139,7 +156,7 @@ def score_status(job_id: str):
     return job
 
 
-def _run_score(job_id: str, path: Path, title: str) -> None:
+def _run_score(job_id: str, path: Path, title: str, instruments: list[str] | None) -> None:
     from muscriptor.events import NoteStartEvent, ProgressEvent
     from muscriptor.utils.midi import ExportOptions, resolve_grid
 
@@ -152,7 +169,7 @@ def _run_score(job_id: str, path: Path, title: str) -> None:
             job.update(progress=0.03, message="Finding the beat")
             grid = model.detect_beat_grid_for(path, "best-effort")
             events = []
-            for ev in model.transcribe(path):
+            for ev in model.transcribe(path, instruments=instruments):
                 if isinstance(ev, ProgressEvent):
                     if ev.total:
                         job.update(progress=0.05 + 0.85 * ev.completed / ev.total,
@@ -169,7 +186,8 @@ def _run_score(job_id: str, path: Path, title: str) -> None:
             if grid is not None:
                 grid = resolve_grid(grid, export, onsets)
         job.update(progress=0.92, message="Writing MusicXML")
-        xml, parts = _midi_to_musicxml(midi_bytes, title)
+        xml, parts = _midi_to_musicxml(
+            midi_bytes, title, grid.beats_per_bar if grid else None, grid.bpm if grid else None)
         job.update(status="succeeded", progress=1.0, message="Done", result={
             "musicxml": xml,
             "parts": parts,
@@ -187,7 +205,7 @@ def _run_score(job_id: str, path: Path, title: str) -> None:
         path.unlink(missing_ok=True)
 
 
-def _midi_to_musicxml(midi_bytes: bytes, title: str) -> tuple[str, list[str]]:
+def _midi_to_musicxml(midi_bytes: bytes, title: str, beats_per_bar: int | None, bpm: float | None) -> tuple[str, list[str]]:
     """Quantized MIDI -> MusicXML with music21, keeping MuScriptor's track names."""
     import mido
     from music21 import converter, metadata, stream
@@ -201,18 +219,61 @@ def _midi_to_musicxml(midi_bytes: bytes, title: str) -> tuple[str, list[str]]:
     with tempfile.TemporaryDirectory() as tmp:
         mid = Path(tmp) / "score.mid"
         mid.write_bytes(midi_bytes)
-        s = converter.parse(str(mid), quantizePost=True)
-        parts = list(s.parts) if isinstance(s, stream.Score) else [s]
+        parsed = converter.parse(str(mid), quantizePost=True)
+        parts = list(parsed.parts) if isinstance(parsed, stream.Score) else [parsed]
         out_names = []
         for i, part in enumerate(parts):
             name = (names[i] if i < len(names) and names[i] else None) or part.partName or f"Part {i + 1}"
-            name = name.replace("_", " ").title()
-            part.partName = name
-            part.partAbbreviation = name[:6]
-            out_names.append(name)
+            out_names.append(name.replace("_", " ").title())
+        s = _even_score(parts, out_names, beats_per_bar or 4, bpm)
         s.metadata = metadata.Metadata()
         s.metadata.title = title
         s.metadata.composer = "Transcribed by MuScriptor"
         xml_path = Path(tmp) / "score.musicxml"
         s.write("musicxml", fp=str(xml_path))
         return xml_path.read_text(encoding="utf-8"), out_names
+
+
+def _even_score(parts, names: list[str], beats_per_bar: int, bpm: float | None = None):
+    """Rebuild every part on one bar grid: same meter, same number of full bars.
+
+    music21's MIDI import gives each part its own length and can overfill a
+    bar where voices overlap, which the app's parser flags ("parts disagree on
+    the length of a measure"). Each part is flattened to one voice (chords
+    where notes overlap), padded with rests to the longest part rounded up to
+    a whole bar, then cut into measures with ties across barlines.
+    """
+    import math
+
+    from music21 import instrument as m21instrument
+    from music21 import meter, stream, tempo
+
+    bar = float(beats_per_bar)
+    end = max((float(p.flatten().highestTime) for p in parts), default=0.0)
+    end = max(bar, math.ceil(end / bar - 1e-6) * bar)
+
+    score = stream.Score()
+    for part, name in zip(parts, names):
+        voice = part.chordify()  # one voice; overlapping notes become chords
+        out = stream.Part()
+        inst = m21instrument.Instrument()
+        inst.partName = name
+        inst.partAbbreviation = name[:6]
+        out.insert(0, inst)
+        out.partName = name
+        out.insert(0, meter.TimeSignature(f"{beats_per_bar}/4"))
+        if bpm and not score.parts:
+            out.insert(0, tempo.MetronomeMark(number=round(bpm, 1)))
+        for n in voice.flatten().notes:
+            off = float(n.offset)
+            if off >= end:
+                continue
+            n.quarterLength = min(float(n.quarterLength), end - off)
+            if n.quarterLength <= 0:
+                continue
+            out.insert(off, n)
+        out.makeRests(fillGaps=True, refStreamOrTimeRange=[0.0, end], inPlace=True, hideRests=False)
+        out.makeMeasures(inPlace=True)
+        out.makeTies(inPlace=True)
+        score.insert(0, out)
+    return score

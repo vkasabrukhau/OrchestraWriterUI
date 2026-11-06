@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, ArrowRight, AudioLines, FolderOpen, Music2, RefreshCw, Sparkles, Upload } from "lucide-react";
-import type { AudioUploadResult, Job, OpenProjectResult, ParseScoreResult, TranscribeScoreResult } from "@/shared/jobs";
+import type { AudioUploadResult, Job, OpenProjectResult, ParseScoreResult, TranscribeEnsemble, TranscribeScoreResult } from "@/shared/jobs";
 import { api } from "@/lib/api";
 import { useProject } from "@/lib/store/project";
 import { usePlayback } from "@/lib/store/playback";
@@ -115,10 +115,10 @@ export function ImportPage({ projectId }: { projectId: string }) {
   // Experimental: no score, but a recording → transcribe one (local MuScriptor service).
   const transcribe = useProjectJob<TranscribeScoreResult>(`${projectId}:transcribe`, { onSucceeded: onScoreDone });
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
-  const startTranscribe = async () => {
+  const startTranscribe = async (ensemble: TranscribeEnsemble) => {
     setTranscribeError(null);
     try {
-      await transcribe.start(() => api.transcribeScore(projectId));
+      await transcribe.start(() => api.transcribeScore(projectId, ensemble));
     } catch (err) {
       setTranscribeError(err instanceof Error ? err.message : "The transcription could not start.");
     }
@@ -222,7 +222,7 @@ export function ImportPage({ projectId }: { projectId: string }) {
             available: Boolean(summary?.hasRecording) && audioPhase === "done",
             job: transcribe.job,
             error: transcribeError ?? (transcribe.job?.status === "failed" ? (transcribe.job.error ?? "The transcription failed.") : null),
-            start: () => void startTranscribe(),
+            start: (ensemble) => void startTranscribe(ensemble),
           }}
         />
         <RecordingCard upload={audio} phase={audioPhase} name={audio.file?.name ?? summary?.recordingName ?? ""} />
@@ -376,11 +376,18 @@ interface TranscribeControls {
   available: boolean;
   job: Job<TranscribeScoreResult> | null;
   error: string | null;
-  start: () => void;
+  start: (ensemble: TranscribeEnsemble) => void;
 }
+
+const ENSEMBLE_OPTIONS: { value: TranscribeEnsemble; label: string }[] = [
+  { value: "orchestra", label: "Orchestra" },
+  { value: "strings", label: "Strings + keyboard" },
+  { value: "any", label: "Any instrument" },
+];
 
 /** Experimental: make the score from the recording instead of uploading one. */
 function TranscribeOffer({ transcribe }: { transcribe: TranscribeControls }) {
+  const [ensemble, setEnsemble] = useState<TranscribeEnsemble>("orchestra");
   return (
     <div className="mt-3 rounded-[var(--radius-lg)] border border-dashed border-line p-3 text-[13px]">
       <div className="flex flex-wrap items-center gap-3">
@@ -392,7 +399,30 @@ function TranscribeOffer({ transcribe }: { transcribe: TranscribeControls }) {
               : "Upload an MP3 under Recording first."}
           </span>
         </p>
-        <Button variant="outline" size="sm" leading={<Sparkles size={13} />} onClick={transcribe.start} disabled={!transcribe.available}>
+        <label className="sr-only" htmlFor="transcribe-ensemble">
+          Instruments to listen for
+        </label>
+        <select
+          id="transcribe-ensemble"
+          value={ensemble}
+          onChange={(e) => setEnsemble(e.target.value as TranscribeEnsemble)}
+          disabled={!transcribe.available}
+          title="Only these instruments are written into the score"
+          className="h-8 rounded-[var(--radius-md)] border border-line bg-paper px-2 text-[13px] text-ink disabled:opacity-50"
+        >
+          {ENSEMBLE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <Button
+          variant="outline"
+          size="sm"
+          leading={<Sparkles size={13} />}
+          onClick={() => transcribe.start(ensemble)}
+          disabled={!transcribe.available}
+        >
           {transcribe.error ? "Try again" : "Transcribe"}
         </Button>
       </div>

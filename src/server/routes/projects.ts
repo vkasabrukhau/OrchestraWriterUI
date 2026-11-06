@@ -3,6 +3,7 @@
 // Every service call passes userId; a project that is not the caller's is a 404.
 import { Hono } from "hono";
 import type { ProjectStage } from "@/shared/domain";
+import { TRANSCRIBE_ENSEMBLES } from "@/shared/jobs";
 import type { DisplaySettings } from "@/shared/project-file";
 import { SECTIONS } from "@/shared/sections";
 import type { SyncState } from "@/shared/sync";
@@ -84,7 +85,10 @@ projectsRoutes.post("/:id/score", async (c) => {
 
 /** Experimental: transcribe the project's recording into its score (local MuScriptor service). */
 projectsRoutes.post("/:id/transcribe-score", async (c) => {
-  const job = await startTranscribeScore(c.get("userId"), projectId(c));
+  const id = projectId(c);
+  const body = await optionalJsonBody(c);
+  const ensemble = optOneOf(body.ensemble, "ensemble", TRANSCRIBE_ENSEMBLES) ?? "orchestra";
+  const job = await startTranscribeScore(c.get("userId"), id, ensemble);
   return c.json({ job }, 202);
 });
 

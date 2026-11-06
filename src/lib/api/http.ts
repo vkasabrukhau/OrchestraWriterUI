@@ -282,10 +282,13 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
       return startJob<AudioUploadResult>("upload-audio", (ctx) => uploadAndRegisterAudio(projectId, file, file.name, file.type || "audio/mpeg", ctx, 0, 1));
     },
 
-    async transcribeScore(projectId) {
+    async transcribeScore(projectId, ensemble = "orchestra") {
       return startJob<TranscribeScoreResult>("transcribe", async (ctx) => {
         ctx.report(0.01, "Starting transcription");
-        const { job: remote } = await request<{ job: JobDto }>(`/projects/${enc(projectId)}/transcribe-score`, { method: "POST" });
+        const { job: remote } = await request<{ job: JobDto }>(`/projects/${enc(projectId)}/transcribe-score`, {
+          method: "POST",
+          json: { ensemble },
+        });
         const done = await pollRemoteJob<TranscribeScoreResult>(ctx.id, remote.id, 0.01, 0.9, ctx.signal);
         if (done.status === "failed" || !done.result) throw new Error(done.error ?? "The transcription failed");
         // The transcribed score is imported by a normal parse-score job.

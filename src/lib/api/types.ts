@@ -1,6 +1,6 @@
 import type { ActivityItem, ProjectSummary } from "@/shared/domain";
 import type { InfoMap } from "@/shared/info-map";
-import type { AlignResult, AudioUploadResult, ExportResult, Job, OpenProjectResult, ParseScoreResult, TranscribeScoreResult } from "@/shared/jobs";
+import type { AlignResult, AudioUploadResult, ExportResult, Job, OpenProjectResult, ParseScoreResult, TranscribeEnsemble, TranscribeScoreResult } from "@/shared/jobs";
 import type { DisplaySettings } from "@/shared/project-file";
 import type { SyncState } from "@/shared/sync";
 import type {
@@ -50,7 +50,7 @@ export interface ApiClient {
   uploadAudio(projectId: string, file: File): Promise<Job<AudioUploadResult>>;
   removeAudio(projectId: string): Promise<ProjectDto>;
   /** Experimental: transcribe the recording into the project's score (local MuScriptor service), then parse it */
-  transcribeScore(projectId: string): Promise<Job<TranscribeScoreResult>>;
+  transcribeScore(projectId: string, ensemble?: TranscribeEnsemble): Promise<Job<TranscribeScoreResult>>;
   getProjectUrls(id: string, options?: { fresh?: boolean }): Promise<ProjectUrls>;
   fetchInfoMap(id: string): Promise<InfoMap>;
   /** PUT the whole sync state; resolves with the project (updatedAt, derived status) */

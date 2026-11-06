@@ -9,7 +9,7 @@
 // The parse-score job that follows is the normal import path, so Sync,
 // Customize, Preview and Export work on the result unchanged.
 import type { JobDto } from "@/shared/api";
-import type { TranscribeScoreResult } from "@/shared/jobs";
+import type { TranscribeEnsemble, TranscribeScoreResult } from "@/shared/jobs";
 import { env } from "../config/env";
 import { query } from "../db/client";
 import { NotFoundError, ValidationError } from "../errors";
@@ -33,7 +33,11 @@ type ServiceJob = {
 };
 
 /** Start transcribing the project's recording. Answers at once with the job. */
-export async function startTranscribeScore(userId: number, projectId: number): Promise<JobDto> {
+export async function startTranscribeScore(
+  userId: number,
+  projectId: number,
+  ensemble: TranscribeEnsemble = "orchestra",
+): Promise<JobDto> {
   const [row] = await query<{ s3_key: string | null; name: string | null }>(
     `SELECT a.s3_key, a.name
        FROM app.projects p LEFT JOIN app.audio_files a ON a.id = p.audio_file_id
@@ -45,11 +49,18 @@ export async function startTranscribeScore(userId: number, projectId: number): P
   if (!env.transcriber.url) throw new ValidationError("The transcription service is not configured (TRANSCRIBER_URL)");
 
   const job = await createJob(userId, { projectId, kind: "transcribe", message: "Starting transcription" });
-  void runTranscribeScore({ userId, projectId, jobId: job.id, audioKey: row.s3_key, audioName: row.name ?? "recording.mp3" });
+  void runTranscribeScore({ userId, projectId, jobId: job.id, audioKey: row.s3_key, audioName: row.name ?? "recording.mp3", ensemble });
   return jobToDto(job);
 }
 
-async function runTranscribeScore(input: { userId: number; projectId: number; jobId: number; audioKey: string; audioName: string }) {
+async function runTranscribeScore(input: {
+  userId: number;
+  projectId: number;
+  jobId: number;
+  audioKey: string;
+  audioName: string;
+  ensemble: TranscribeEnsemble;
+}) {
   const { userId, projectId, jobId } = input;
   const base = env.transcriber.url!.replace(/\/$/, "");
   try {
@@ -59,7 +70,7 @@ async function runTranscribeScore(input: { userId: number; projectId: number; jo
 
     let started: Response;
     try {
-      started = await fetch(`${base}/score?${new URLSearchParams({ filename: input.audioName, title: stem })}`, {
+      started = await fetch(`${base}/score?${new URLSearchParams({ filename: input.audioName, title: stem, ensemble: input.ensemble })}`, {
         method: "POST",
         headers: { "content-type": "application/octet-stream" },
         body: Buffer.from(audio),

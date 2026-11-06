@@ -41,6 +41,13 @@ export interface ParseScoreResult {
   warnings: string[];
 }
 
+/**
+ * Experimental: which instruments the transcriber may write (ml/server.py
+ * ENSEMBLES). Left free, MuScriptor often hears strings as guitar and bass.
+ */
+export const TRANSCRIBE_ENSEMBLES = ["orchestra", "strings", "any"] as const;
+export type TranscribeEnsemble = (typeof TRANSCRIBE_ENSEMBLES)[number];
+
 /** Experimental: a score transcribed from the recording (ml/server.py, MuScriptor). */
 export interface TranscribeScoreResult {
   /** detected instruments, one score part each */
