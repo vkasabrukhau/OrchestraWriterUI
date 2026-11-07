@@ -7,7 +7,7 @@ Everything is in `us-east-1`. Created by `scripts/deploy-init.sh` unless noted.
 | Aurora PostgreSQL cluster | `orchestra-db-1` (pre-existing) | application tables; IAM auth, TLS required |
 | S3 bucket | `orchestra-writer-s3` (pre-existing) | audio recordings; private, presigned URLs only, CORS for the site origin |
 | ECR repository | `orchestra-writer` | container images built by GitHub Actions |
-| App Runner service | `orchestra-writer` | runs the image on port 3000; auto-deploys when `:latest` changes |
+| App Runner service | `orchestra-writer` | runs the image on port 3000 (1 vCPU / 2 GB); auto-deploys when `:latest` changes |
 | IAM OIDC provider | `token.actions.githubusercontent.com` | lets GitHub Actions assume a role with no stored keys |
 | IAM role | `orchestra-writer-github-deploy` | assumed by the workflow: push to ECR, read App Runner status |
 | IAM role | `orchestra-writer-apprunner-ecr` | lets App Runner pull from ECR (AWS managed policy) |
@@ -42,8 +42,27 @@ gh variable set AWS_DEPLOY_ROLE_ARN -R vkasabrukhau/OrchestraWriterUI \
 ```
 
 The next push to `main` then replaces the App Runner site with this app.
-Before that, `Dockerfile.worker` needs updating: it still builds the old
-repo's `server/` layout, so the "update Lambdas" job fails here.
+
+## Transcription pipeline (Step Functions + Lambda): parked
+
+`scripts/pipeline-init.sh` created a state machine and six Lambdas
+(`orchestra-writer-split|transcribe|merge|notate|finalize|fail`). They are no
+longer deployed from CI, and nothing here calls them: the routes are mounted
+only with `PIPELINE_ENABLED=1`, the model step is still a placeholder, and the
+whole pipeline had run twice (both tests, 2026-10-23). Idle Lambdas and a
+state machine cost nothing; the worker images in ECR cost cents.
+
+The shape does not fit a real model either. MuScriptor decodes a recording
+in order (each chunk is conditioned on the previous one so instruments stay
+consistent), needs a GPU to run near real time, and can exceed Lambda's
+15-minute limit, so 30-second chunks fanned out to 20 Lambdas is the wrong
+split. When transcription ships, run one GPU job per recording (AWS Batch on
+spot GPU instances, or SageMaker asynchronous inference; both scale to zero),
+started by Step Functions or the API, and keep Lambda for small glue. The
+MuScriptor weights are CC BY-NC: non-commercial use only. To retire the old
+resources instead: delete the six functions, the state machine, the
+`orchestra-writer-worker` ECR repository and role, and unset
+`STATE_MACHINE_ARN` on the App Runner service.
 
 ## Policy for a collaborator running locally
 
