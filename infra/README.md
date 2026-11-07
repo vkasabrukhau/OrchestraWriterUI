@@ -13,7 +13,37 @@ Everything is in `us-east-1`. Created by `scripts/deploy-init.sh` unless noted.
 | IAM role | `orchestra-writer-apprunner-ecr` | lets App Runner pull from ECR (AWS managed policy) |
 | IAM role | `orchestra-writer-apprunner-task` | the running server: `rds-db:connect`, bucket read/write, read SSM secrets |
 | SSM parameters | `/orchestra-writer/BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | injected into the service as env vars |
-| GitHub repo variable | `AWS_DEPLOY_ROLE_ARN` | read by `.github/workflows/deploy.yml` |
+| GitHub repo variable | `AWS_DEPLOY_ROLE_ARN` | read by `.github/workflows/deploy.yml`; must be set on **this** repo (see below) |
+
+## This repo and AWS
+
+The code moved from `SulaimanKhydyrDUKE/OrchestraWriter` to
+`vkasabrukhau/OrchestraWriterUI`; the AWS resources above did not move and are
+shared. Two things connect this repo to them:
+
+**Local development against AWS.** `npm run aws:env` writes `.env.aws`
+(gitignored) from AWS with your own `aws configure` credentials: the Aurora
+endpoint, the bucket, the state machine ARN and, if you may read SSM, the
+Google sign-in pair. Then `npm run db:ping:aws` and `npm run dev:aws`. Plain
+`npm run dev` still uses the docker compose stack. This repo is public: never
+commit `.env.aws` or paste its values into a tracked file.
+
+`dev:aws` migrates the shared database on boot like the deployed server does.
+Migrations here are additive (new tables, nullable columns), so the deployed
+app keeps working; do not add a destructive one without coordinating.
+
+**Deploys from GitHub Actions.** The `orchestra-writer-github-deploy` role
+trusts `repo:vkasabrukhau/OrchestraWriterUI:ref:refs/heads/main` (and still the
+old repo). A repo admin sets the variable to turn deploys on:
+
+```bash
+gh variable set AWS_DEPLOY_ROLE_ARN -R vkasabrukhau/OrchestraWriterUI \
+  --body arn:aws:iam::ACCOUNT_ID:role/orchestra-writer-github-deploy
+```
+
+The next push to `main` then replaces the App Runner site with this app.
+Before that, `Dockerfile.worker` needs updating: it still builds the old
+repo's `server/` layout, so the "update Lambdas" job fails here.
 
 ## Policy for a collaborator running locally
 
