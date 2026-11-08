@@ -307,7 +307,10 @@ PIPELINE_ENV=""
 [ -n "$SM_ARN" ] && PIPELINE_ENV=",
         \"STATE_MACHINE_ARN\": \"$SM_ARN\""
 echo "pipeline: ${SM_ARN:-inline (no state machine yet)}"
-INSTANCE_CONFIG="{\"Cpu\":\"0.25 vCPU\",\"Memory\":\"0.5 GB\",\"InstanceRoleArn\":\"$TASK_ROLE_ARN\"}"
+# 1 vCPU / 2 GB: one instance serves the API, the Next.js pages and the parse-score
+# job (scores up to 50 MB are read and parsed in-process), so 0.25 vCPU / 0.5 GB
+# stalled every request during a parse and left no memory headroom.
+INSTANCE_CONFIG="{\"Cpu\":\"1 vCPU\",\"Memory\":\"2 GB\",\"InstanceRoleArn\":\"$TASK_ROLE_ARN\"}"
 # The API (and its DB-free liveness route) lives under /api since the server moved into Next.js.
 HEALTH_CONFIG='{"Protocol":"HTTP","Path":"/api/health","Interval":10,"Timeout":5,"HealthyThreshold":1,"UnhealthyThreshold":5}'
 

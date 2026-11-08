@@ -7,13 +7,62 @@ Everything is in `us-east-1`. Created by `scripts/deploy-init.sh` unless noted.
 | Aurora PostgreSQL cluster | `orchestra-db-1` (pre-existing) | application tables; IAM auth, TLS required |
 | S3 bucket | `orchestra-writer-s3` (pre-existing) | audio recordings; private, presigned URLs only, CORS for the site origin |
 | ECR repository | `orchestra-writer` | container images built by GitHub Actions |
-| App Runner service | `orchestra-writer` | runs the image on port 3000; auto-deploys when `:latest` changes |
+| App Runner service | `orchestra-writer` | runs the image on port 3000 (1 vCPU / 2 GB); auto-deploys when `:latest` changes |
 | IAM OIDC provider | `token.actions.githubusercontent.com` | lets GitHub Actions assume a role with no stored keys |
 | IAM role | `orchestra-writer-github-deploy` | assumed by the workflow: push to ECR, read App Runner status |
 | IAM role | `orchestra-writer-apprunner-ecr` | lets App Runner pull from ECR (AWS managed policy) |
 | IAM role | `orchestra-writer-apprunner-task` | the running server: `rds-db:connect`, bucket read/write, read SSM secrets |
 | SSM parameters | `/orchestra-writer/BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | injected into the service as env vars |
-| GitHub repo variable | `AWS_DEPLOY_ROLE_ARN` | read by `.github/workflows/deploy.yml` |
+| GitHub repo variable | `AWS_DEPLOY_ROLE_ARN` | read by `.github/workflows/deploy.yml`; must be set on **this** repo (see below) |
+
+## This repo and AWS
+
+The code moved from `SulaimanKhydyrDUKE/OrchestraWriter` to
+`vkasabrukhau/OrchestraWriterUI`; the AWS resources above did not move and are
+shared. Two things connect this repo to them:
+
+**Local development against AWS.** `npm run aws:env` writes `.env.aws`
+(gitignored) from AWS with your own `aws configure` credentials: the Aurora
+endpoint, the bucket, the state machine ARN and, if you may read SSM, the
+Google sign-in pair. Then `npm run db:ping:aws` and `npm run dev:aws`. Plain
+`npm run dev` still uses the docker compose stack. This repo is public: never
+commit `.env.aws` or paste its values into a tracked file.
+
+`dev:aws` migrates the shared database on boot like the deployed server does.
+Migrations here are additive (new tables, nullable columns), so the deployed
+app keeps working; do not add a destructive one without coordinating.
+
+**Deploys from GitHub Actions.** The `orchestra-writer-github-deploy` role
+trusts `repo:vkasabrukhau/OrchestraWriterUI:ref:refs/heads/main` (and still the
+old repo). A repo admin sets the variable to turn deploys on:
+
+```bash
+gh variable set AWS_DEPLOY_ROLE_ARN -R vkasabrukhau/OrchestraWriterUI \
+  --body arn:aws:iam::ACCOUNT_ID:role/orchestra-writer-github-deploy
+```
+
+The next push to `main` then replaces the App Runner site with this app.
+
+## Transcription pipeline (Step Functions + Lambda): parked
+
+`scripts/pipeline-init.sh` created a state machine and six Lambdas
+(`orchestra-writer-split|transcribe|merge|notate|finalize|fail`). They are no
+longer deployed from CI, and nothing here calls them: the routes are mounted
+only with `PIPELINE_ENABLED=1`, the model step is still a placeholder, and the
+whole pipeline had run twice (both tests, 2026-10-23). Idle Lambdas and a
+state machine cost nothing; the worker images in ECR cost cents.
+
+The shape does not fit a real model either. MuScriptor decodes a recording
+in order (each chunk is conditioned on the previous one so instruments stay
+consistent), needs a GPU to run near real time, and can exceed Lambda's
+15-minute limit, so 30-second chunks fanned out to 20 Lambdas is the wrong
+split. When transcription ships, run one GPU job per recording (AWS Batch on
+spot GPU instances, or SageMaker asynchronous inference; both scale to zero),
+started by Step Functions or the API, and keep Lambda for small glue. The
+MuScriptor weights are CC BY-NC: non-commercial use only. To retire the old
+resources instead: delete the six functions, the state machine, the
+`orchestra-writer-worker` ECR repository and role, and unset
+`STATE_MACHINE_ARN` on the App Runner service.
 
 ## Policy for a collaborator running locally
 

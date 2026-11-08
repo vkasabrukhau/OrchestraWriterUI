@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:aws": "node --env-file=.env.aws node_modules/next/dist/bin/next dev",
     "ml:serve": "cd ml && uv run uvicorn server:app --host 127.0.0.1 --port 8333",
     "ml:test": "cd ml && uv run python -m unittest discover -s tests",
     "build": "next build",
@@ -17,8 +18,10 @@
     "db:migrate": "tsx src/server/db/cli.ts migrate",
     "db:seed": "tsx src/server/db/cli.ts seed",
     "db:ping": "tsx src/server/db/cli.ts ping",
+    "db:ping:aws": "node --env-file=.env.aws --import tsx src/server/db/cli.ts ping",
     "fixtures": "tsx scripts/make-fixtures.ts",
-    "auth:schema": "better-auth generate --config src/server/auth.ts --output /dev/stdout"
+    "auth:schema": "better-auth generate --config src/server/auth.ts --output /dev/stdout",
+    "aws:env": "scripts/aws-env.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1156.0",
