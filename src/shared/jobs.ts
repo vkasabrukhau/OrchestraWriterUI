@@ -59,6 +59,41 @@ export interface TranscribeScoreResult {
   seconds: number;
   /** the parse-score job that imports the transcribed score */
   parseJobId: string;
+  /** true when the measure starts from the transcription were saved as the project's sync */
+  synced: boolean;
+}
+
+/**
+ * Experimental: corrections to a transcribed score's bars. They move bar
+ * lines, never notes (MuScriptor's export options), and are applied without
+ * running the model again.
+ */
+export interface TranscriptionBars {
+  /** time signature in quarter-note beats (2 = 2/4 ... 7 = 7/4); null = as detected (4/4 when nothing was detected) */
+  beatsPerBar: number | null;
+  /** bar lines moved later by this many beats; the server keeps it within one bar (0 ≤ shift < beats per bar) */
+  shiftBeats: number;
+  /** 2: the tracker counted half notes as beats (double the tempo); 0.5: it counted eighths (halve it) */
+  beatScale: 0.5 | 1 | 2;
+}
+
+export const TRANSCRIPTION_BEAT_SCALES = [0.5, 1, 2] as const;
+export const TRANSCRIPTION_METERS = [2, 3, 4, 5, 6, 7] as const;
+export const DEFAULT_TRANSCRIPTION_BARS: TranscriptionBars = { beatsPerBar: null, shiftBeats: 0, beatScale: 1 };
+
+/** Experimental: what the project knows about its transcribed score (on the project summary). */
+export interface TranscriptionInfo {
+  /** e.g. "muscriptor-medium" */
+  model: string;
+  /** what the beat tracker found: beats per bar (null = not detected) and tempo */
+  detected: { beatsPerBar: number | null; bpm: number | null };
+  /** the bar settings the current score was written with */
+  bars: TranscriptionBars;
+  /** written tempo and beats per bar of the current score */
+  bpm: number;
+  beatsPerBar: number;
+  /** plain-language caveats about the score ("rhythms are approximate", "4/4 was assumed") */
+  warnings: string[];
 }
 
 export interface AudioUploadResult {

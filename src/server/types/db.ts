@@ -62,6 +62,8 @@ export type ProjectRow = {
   parse_job_id: number | null;
   sync: unknown;
   display: unknown;
+  /** experimental: see services/transcribe-score.ts (StoredTranscription) */
+  transcription: unknown;
   created_at: Date;
   updated_at: Date;
 };

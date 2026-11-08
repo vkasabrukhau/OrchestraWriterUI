@@ -19,6 +19,7 @@ const METHODS: Record<keyof ApiClient, true> = {
   uploadAudio: true,
   removeAudio: true,
   transcribeScore: true,
+  rebarTranscription: true,
   getProjectUrls: true,
   fetchInfoMap: true,
   saveSync: true,

@@ -6,6 +6,7 @@ import type {
   RegisterScoreResponse,
 } from "@/shared/api";
 import type { ProjectStage, ProjectStatus, ProjectSummary } from "@/shared/domain";
+import type { TranscriptionInfo } from "@/shared/jobs";
 import type { DisplaySettings } from "@/shared/project-file";
 import type { SyncState } from "@/shared/sync";
 import { query, withTransaction } from "../db/client";
@@ -23,6 +24,7 @@ import type { ProjectRow } from "../types/db";
 import { logActivity, logThrottled } from "./activity";
 import { createJob, getJob } from "./jobs";
 import { runParseScore } from "./parse-score";
+import type { StoredTranscription } from "./transcribe-score";
 
 export const DEFAULT_TITLE = "Untitled project";
 export const SCORE_MAX_BYTES = 50 * 1024 * 1024;
@@ -36,6 +38,7 @@ type SummaryRow = Omit<ProjectRow, "audio_peaks" | "sync" | "display"> & {
   parse_message: string | null;
   export_count: number;
   program_ids: number[];
+  transcribing: boolean;
 };
 
 type FullRow = SummaryRow & Pick<ProjectRow, "audio_peaks" | "sync" | "display">;
@@ -44,6 +47,7 @@ const SUMMARY_COLUMNS = `
   p.id, p.user_id, p.title, p.subtitle, p.composer, p.movement, p.score_filename, p.score_key, p.score_bytes,
   p.info_map_key, p.audio_file_id, p.parts, p.measures, p.duration_seconds, p.tempo, p.time_signature,
   p.warnings, p.thumbnail, p.stage, p.parse_status, p.parse_error, p.parse_job_id, p.created_at, p.updated_at,
+  p.transcription,
   a.name AS recording_name, a.s3_key AS audio_key,
   (p.sync IS NOT NULL) AS has_sync,
   CASE WHEN jsonb_typeof(p.sync -> 'averageConfidence') = 'number'
@@ -51,7 +55,9 @@ const SUMMARY_COLUMNS = `
   j.message AS parse_message,
   (SELECT count(*)::int FROM app.exports e WHERE e.project_id = p.id) AS export_count,
   COALESCE((SELECT array_agg(pp.program_id ORDER BY pp.program_id)
-              FROM app.program_projects pp WHERE pp.project_id = p.id), '{}') AS program_ids`;
+              FROM app.program_projects pp WHERE pp.project_id = p.id), '{}') AS program_ids,
+  EXISTS (SELECT 1 FROM app.jobs t
+           WHERE t.project_id = p.id AND t.kind = 'transcribe' AND t.status IN ('queued', 'running')) AS transcribing`;
 
 const FROM = `
   FROM app.projects p
@@ -62,7 +68,9 @@ const FROM = `
 function deriveStatus(row: SummaryRow): { status: ProjectStatus; statusDetail?: string } {
   if (row.parse_status === "running") return { status: "importing", statusDetail: row.parse_message || "Reading score" };
   if (row.parse_status === "failed") return { status: "failed", statusDetail: row.parse_error ?? "Import failed" };
-  if (row.parse_status === "none") return { status: "importing", statusDetail: "Waiting for a score" };
+  if (row.parse_status === "none") {
+    return { status: "importing", statusDetail: row.transcribing ? "Transcribing the recording" : "Waiting for a score" };
+  }
   if (row.audio_file_id !== null && !row.has_sync) return { status: "needs-sync" };
   if (row.export_count > 0) return { status: "exported" };
   return { status: "ready" };
@@ -92,7 +100,15 @@ export function toSummary(row: SummaryRow): ProjectSummary {
   if (row.recording_name) summary.recordingName = row.recording_name;
   if (statusDetail) summary.statusDetail = statusDetail;
   if (row.average_confidence !== null) summary.averageConfidence = row.average_confidence;
+  if (row.transcribing) summary.transcribing = true;
+  if (row.transcription) summary.transcription = transcriptionInfo(row.transcription as StoredTranscription);
   return summary;
+}
+
+/** The wire form of a stored transcription: everything but the S3 key and title. */
+function transcriptionInfo(stored: StoredTranscription): TranscriptionInfo {
+  const { model, detected, bars, bpm, beatsPerBar, warnings } = stored;
+  return { model, detected, bars, bpm, beatsPerBar, warnings };
 }
 
 function toDto(row: FullRow): ProjectDto {
@@ -266,14 +282,17 @@ export async function registerScore(
   userId: number,
   projectId: number,
   input: { key: string; filename: string },
+  /** keepTranscription: the transcribe job registering a score it wrote (it updates the transcription itself) */
+  options: { keepTranscription?: boolean } = {},
 ): Promise<RegisterScoreResponse> {
   await ownedProject(userId, projectId);
   if (!isProjectObjectKey(input.key, userId, projectId, "score")) throw new ForbiddenKeyError();
   const bytes = await uploadedSize(input.key, SCORE_MAX_BYTES, "score");
 
   const { job, oldKeys } = await withTransaction(async (db) => {
-    const res = await db.query<Pick<ProjectRow, "score_key" | "info_map_key">>(
-      "SELECT score_key, info_map_key FROM app.projects WHERE id = $1 AND user_id = $2 FOR UPDATE",
+    const res = await db.query<Pick<ProjectRow, "score_key" | "info_map_key"> & { transcription_key: string | null }>(
+      `SELECT score_key, info_map_key, transcription ->> 'key' AS transcription_key
+         FROM app.projects WHERE id = $1 AND user_id = $2 FOR UPDATE`,
       [projectId, userId],
     );
     const current = res.rows[0];
@@ -288,9 +307,10 @@ export async function registerScore(
                 parse_status = 'running', parse_error = NULL, parse_job_id = $6,
                 sync = CASE WHEN $7 THEN NULL ELSE sync END,
                 display = CASE WHEN $7 THEN NULL ELSE display END,
+                transcription = CASE WHEN $8 THEN transcription ELSE NULL END,
                 updated_at = now()
           WHERE id = $1 AND user_id = $2`,
-        [projectId, userId, input.key, input.filename, bytes, jobId, replacing],
+        [projectId, userId, input.key, input.filename, bytes, jobId, replacing, Boolean(options.keepTranscription)],
       );
     } catch (err) {
       if ((err as { code?: string }).code === "23505") throw new ConflictError("That score is already registered");
@@ -298,7 +318,7 @@ export async function registerScore(
     }
     return {
       job: jobId,
-      oldKeys: [replacing ? current.score_key : null, current.info_map_key],
+      oldKeys: [replacing ? current.score_key : null, current.info_map_key, options.keepTranscription ? null : current.transcription_key],
     };
   });
 
@@ -320,9 +340,9 @@ export async function registerAudio(
   if (!isProjectObjectKey(input.key, userId, projectId, "audio")) throw new ForbiddenKeyError();
   const bytes = await uploadedSize(input.key, AUDIO_MAX_BYTES, "recording");
 
-  const oldKey = await withTransaction(async (db) => {
-    const res = await db.query<{ audio_file_id: number | null; s3_key: string | null }>(
-      `SELECT p.audio_file_id, a.s3_key
+  const oldKeys = await withTransaction(async (db) => {
+    const res = await db.query<{ audio_file_id: number | null; s3_key: string | null; transcription_key: string | null }>(
+      `SELECT p.audio_file_id, a.s3_key, p.transcription ->> 'key' AS transcription_key
          FROM app.projects p LEFT JOIN app.audio_files a ON a.id = p.audio_file_id
         WHERE p.id = $1 AND p.user_id = $2
         FOR UPDATE OF p`,
@@ -345,26 +365,26 @@ export async function registerAudio(
     }
     await db.query(
       `UPDATE app.projects
-          SET audio_file_id = $3, audio_peaks = $4::jsonb, sync = NULL, stage = 'sync', updated_at = now()
+          SET audio_file_id = $3, audio_peaks = $4::jsonb, sync = NULL, transcription = NULL, stage = 'sync', updated_at = now()
         WHERE id = $1 AND user_id = $2`,
       [projectId, userId, audioId, input.peaks ? JSON.stringify(input.peaks) : null],
     );
     if (current.audio_file_id !== null && current.audio_file_id !== audioId) {
       await db.query("DELETE FROM app.audio_files WHERE id = $1 AND user_id = $2", [current.audio_file_id, userId]);
-      return current.s3_key;
+      return [current.s3_key, current.transcription_key];
     }
-    return null;
+    return [current.transcription_key];
   });
 
-  await bestEffortDelete([oldKey]);
+  await bestEffortDelete(oldKeys);
   await logActivity(userId, projectId, "import", `Added recording · ${input.filename}`);
   return getProject(userId, projectId);
 }
 
 export async function removeAudio(userId: number, projectId: number): Promise<ProjectDto> {
-  const oldKey = await withTransaction(async (db) => {
-    const res = await db.query<{ audio_file_id: number | null; s3_key: string | null }>(
-      `SELECT p.audio_file_id, a.s3_key
+  const oldKeys = await withTransaction(async (db) => {
+    const res = await db.query<{ audio_file_id: number | null; s3_key: string | null; transcription_key: string | null }>(
+      `SELECT p.audio_file_id, a.s3_key, p.transcription ->> 'key' AS transcription_key
          FROM app.projects p LEFT JOIN app.audio_files a ON a.id = p.audio_file_id
         WHERE p.id = $1 AND p.user_id = $2
         FOR UPDATE OF p`,
@@ -374,17 +394,17 @@ export async function removeAudio(userId: number, projectId: number): Promise<Pr
     if (!current) throw new NotFoundError("Project");
     await db.query(
       `UPDATE app.projects
-          SET audio_file_id = NULL, audio_peaks = NULL, sync = NULL,
+          SET audio_file_id = NULL, audio_peaks = NULL, sync = NULL, transcription = NULL,
               stage = CASE WHEN stage = 'sync' THEN 'customize' ELSE stage END,
               updated_at = now()
         WHERE id = $1 AND user_id = $2`,
       [projectId, userId],
     );
-    if (current.audio_file_id === null) return null;
+    if (current.audio_file_id === null) return [current.transcription_key];
     await db.query("DELETE FROM app.audio_files WHERE id = $1 AND user_id = $2", [current.audio_file_id, userId]);
-    return current.s3_key;
+    return [current.s3_key, current.transcription_key];
   });
-  await bestEffortDelete([oldKey]);
+  await bestEffortDelete(oldKeys);
   return getProject(userId, projectId);
 }
 

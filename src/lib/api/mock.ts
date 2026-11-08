@@ -323,6 +323,12 @@ export const mockApi: ApiClient = {
     });
   },
 
+  async rebarTranscription() {
+    return simulated<TranscribeScoreResult>("transcribe", [{ until: 1, message: "Rewriting the bars" }], 600, () => {
+      throw new Error("Transcription needs the real API and the local MuScriptor service (npm run ml:serve).");
+    });
+  },
+
   async removeAudio(projectId) {
     await wait(LATENCY_MS);
     const p = mustProject(projectId);

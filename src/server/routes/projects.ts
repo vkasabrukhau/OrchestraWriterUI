@@ -3,14 +3,14 @@
 // Every service call passes userId; a project that is not the caller's is a 404.
 import { Hono } from "hono";
 import type { ProjectStage } from "@/shared/domain";
-import { TRANSCRIBE_ENSEMBLES } from "@/shared/jobs";
+import { TRANSCRIBE_ENSEMBLES, TRANSCRIPTION_BEAT_SCALES, TRANSCRIPTION_METERS } from "@/shared/jobs";
 import type { DisplaySettings } from "@/shared/project-file";
 import { SECTIONS } from "@/shared/sections";
 import type { SyncState } from "@/shared/sync";
 import { ValidationError } from "../errors";
 import * as exportsService from "../services/exports";
 import * as projects from "../services/projects";
-import { startTranscribeScore } from "../services/transcribe-score";
+import { startRebarTranscription, startTranscribeScore } from "../services/transcribe-score";
 import { requireUser, type AuthEnv } from "./session";
 import {
   bool,
@@ -88,7 +88,21 @@ projectsRoutes.post("/:id/transcribe-score", async (c) => {
   const id = projectId(c);
   const body = await optionalJsonBody(c);
   const ensemble = optOneOf(body.ensemble, "ensemble", TRANSCRIBE_ENSEMBLES) ?? "orchestra";
-  const job = await startTranscribeScore(c.get("userId"), id, ensemble);
+  // resume: only answer a transcription that is already running (404 when none is)
+  const resume = body.resume === undefined ? false : bool(body.resume, "resume");
+  const job = await startTranscribeScore(c.get("userId"), id, ensemble, { resume });
+  return c.json({ job }, 202);
+});
+
+/** Experimental: rewrite a transcribed score with corrected bars (time signature, bar lines moved, half/double tempo). */
+projectsRoutes.post("/:id/transcription/bars", async (c) => {
+  const id = projectId(c);
+  const body = await optionalJsonBody(c);
+  const beatsPerBar = body.beatsPerBar === undefined || body.beatsPerBar === null ? null : oneOf(body.beatsPerBar, "beatsPerBar", TRANSCRIPTION_METERS);
+  const shiftBeats = body.shiftBeats === undefined ? 0 : num(body.shiftBeats, "shiftBeats", { min: -16, max: 16 });
+  if (!Number.isInteger(shiftBeats)) throw new ValidationError("shiftBeats must be a whole number of beats");
+  const beatScale = optOneOf(body.beatScale, "beatScale", TRANSCRIPTION_BEAT_SCALES) ?? 1;
+  const job = await startRebarTranscription(c.get("userId"), id, { beatsPerBar, shiftBeats, beatScale });
   return c.json({ job }, 202);
 });
 
