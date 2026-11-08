@@ -60,3 +60,7 @@ build/
 # Playwright output
 /test-results/
 /playwright-report/
+
+# Local transcription service (ml/)
+ml/.venv/
+__pycache__/

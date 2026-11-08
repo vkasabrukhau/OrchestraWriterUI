@@ -1,6 +1,6 @@
 import type { ActivityItem, ProjectSummary } from "@/shared/domain";
 import type { InfoMap } from "@/shared/info-map";
-import type { AlignResult, AudioUploadResult, ExportResult, Job, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
+import type { AlignResult, AudioUploadResult, ExportResult, Job, OpenProjectResult, ParseScoreResult, TranscribeEnsemble, TranscribeScoreResult, TranscriptionBars } from "@/shared/jobs";
 import type { DisplaySettings } from "@/shared/project-file";
 import type { SyncState } from "@/shared/sync";
 import type {
@@ -49,6 +49,10 @@ export interface ApiClient {
   /** presign → PUT to S3 → decode for duration + peaks → register */
   uploadAudio(projectId: string, file: File): Promise<Job<AudioUploadResult>>;
   removeAudio(projectId: string): Promise<ProjectDto>;
+  /** Experimental: transcribe the recording into the project's score (local MuScriptor service), then parse it */
+  transcribeScore(projectId: string, ensemble?: TranscribeEnsemble, options?: { resume?: boolean }): Promise<Job<TranscribeScoreResult>>;
+  /** Experimental: rewrite a transcribed score with corrected bars (no model run), then parse it */
+  rebarTranscription(projectId: string, bars: TranscriptionBars): Promise<Job<TranscribeScoreResult>>;
   getProjectUrls(id: string, options?: { fresh?: boolean }): Promise<ProjectUrls>;
   fetchInfoMap(id: string): Promise<InfoMap>;
   /** PUT the whole sync state; resolves with the project (updatedAt, derived status) */

@@ -1,3 +1,4 @@
+import type { TranscriptionInfo } from "./jobs";
 import type { Section } from "./sections";
 
 /** A director / educator / listener using the app. */
@@ -42,6 +43,10 @@ export interface ProjectSummary {
   thumbnail: Array<{ section: Section; x: number; y: number; level: number }>;
   averageConfidence?: number;
   exports: number;
+  /** experimental: a transcription of the recording into a score is running on the server */
+  transcribing?: boolean;
+  /** experimental: the score was transcribed from the recording; its bar settings and caveats */
+  transcription?: TranscriptionInfo;
 }
 
 export interface Program {

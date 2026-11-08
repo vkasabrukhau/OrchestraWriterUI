@@ -3,7 +3,7 @@
 Edited only on `main` (or in the PR that merges). Everything Claude needs to
 know about *where we are* lives here; *what we're building* lives in `docs/spec/`.
 
-Last updated: 2026-10-26 (branch `feat/backend-integration`, in review)
+Last updated: 2026-11-08 (branch `sulaiman/audio-to-score`, in review)
 
 ## Status by requirement
 
@@ -29,7 +29,7 @@ Status values: not started · in progress · in review · done · blocked
 |---|---|---|
 | Sign in / Sign up | wired | email + password; Google when configured |
 | Library, Programs, Profile, Settings | wired | real data; decluttered |
-| Import | wired | real uploads, parse job, open `.ovproj` |
+| Import | wired | real uploads, parse job, open `.ovproj`; experimental: transcribe a score from the recording (local MuScriptor service, `ml/`), with bar corrections |
 | Sync | wired | auto-aligns on first visit; nudge default, ms advanced |
 | Customize | wired | Radix slider for glow size; later-phase rows removed |
 | Preview | wired | real audio, collapsible panels |
@@ -42,7 +42,7 @@ Status values: not started · in progress · in review · done · blocked
 3. ~~Visual direction~~ – A by default, B as a theme (ADR 0005).
 4. **Audience** – new listeners following a symphony vs musicians maximizing prep time; needs confirmation.
 5. ~~MP4 export~~ – in-browser WebCodecs (ADR 0010).
-6. **Transcription pipeline** – the backend's audio-to-score pipeline is kept under `/api/transcriptions` but has no UI. Keep, surface, or remove?
+6. **Transcription pipeline** – the backend's audio-to-score pipeline is kept under `/api/transcriptions` but has no UI. Separately, an experimental Import option transcribes the recording into a score with a local MuScriptor service (`ml/README.md`); its model weights are CC BY-NC (non-commercial). Keep experimental, ship (needs hosting and a licence decision), or remove?
 7. **Hosting the Next.js image** – `scripts/deploy-init.sh` targets App Runner; run it once from `main`.
 8. **Password reset** – needs an email provider (Better Auth `sendResetPassword`); until then a lost password loses the account.
 9. **Storage quotas** – uploads are capped per file (50 MB score, 500 MB recording, 2 GB export) but there is no per-user quota or lifecycle rule for abandoned uploads yet.

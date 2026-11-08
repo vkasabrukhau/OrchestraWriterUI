@@ -176,6 +176,29 @@ score replaces the old one: its object and info map are deleted, `sync` and
 
 To read the information map: `GET /api/projects/:id/urls`, then `fetch(urls.infoMap)` (JSON `InfoMap`).
 
+### Transcribing a score from the recording (experimental)
+
+Needs the local MuScriptor service (`npm run ml:serve`, `ml/README.md`) at
+`TRANSCRIBER_URL` (default `http://127.0.0.1:8333` locally). Both routes answer
+202 `{ job }` with a server job of kind `transcribe`; when it succeeds its
+result is a `TranscribeScoreResult` `{ parts, bpm, model, seconds, parseJobId, synced }`,
+and `parseJobId` is the parse-score job that imports the written score.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/api/projects/:id/transcribe-score` | `{ ensemble?: "orchestra" \| "strings" \| "any", resume?: boolean }` | Transcribes the recording (400 without one). A transcription already running on the project is answered instead of starting another; `resume: true` only answers a running one (404 when there is none). |
+| POST | `/api/projects/:id/transcription/bars` | `TranscriptionBars` `{ beatsPerBar: 2–7 \| null, shiftBeats: -16–16, beatScale: 0.5 \| 1 \| 2 }` | Rewrites a transcribed score with corrected bars from the saved transcription (no model run): time signature, bar lines moved later by whole beats (kept within one bar), half/double tempo. 400 when the score was not transcribed, 409 while a transcription runs. |
+
+The job writes the MusicXML to the score folder and registers it like an
+upload, then, once it is parsed, saves the measure starts the service reported
+as the project's `sync` (`method: "transcription-beats"`, confidence 100) when
+the measure counts agree. The transcription itself (the model's notes and the
+beat grid) is kept in S3; `project.transcription` (`TranscriptionInfo`)
+carries what the UI needs: `{ model, detected: { beatsPerBar, bpm }, bars, bpm, beatsPerBar, warnings }`.
+Registering an uploaded score, a new recording or removing the recording
+clears it. `project.transcribing` is `true` while a transcription runs, and
+`statusDetail` reads "Transcribing the recording".
+
 ## Jobs (`/api/jobs`, session required)
 
 | Method | Path | Returns |

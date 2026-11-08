@@ -66,6 +66,17 @@ export async function finishJob(
   }
 }
 
+/** The newest queued or running job of this kind on the project, if any. */
+export async function findActiveJob(userId: number, projectId: number, kind: JobKind): Promise<JobRow | null> {
+  const [row] = await query<JobRow>(
+    `SELECT ${COLUMNS} FROM app.jobs
+      WHERE user_id = $1 AND project_id = $2 AND kind = $3 AND status IN ('queued', 'running')
+      ORDER BY id DESC LIMIT 1`,
+    [userId, projectId, kind],
+  );
+  return row ?? null;
+}
+
 /** One job, only if it belongs to userId (404 otherwise). */
 export async function getJob(userId: number, jobId: number): Promise<JobDto> {
   const [row] = await query<JobRow>(`SELECT ${COLUMNS} FROM app.jobs WHERE id = $1 AND user_id = $2`, [jobId, userId]);

@@ -7,7 +7,7 @@
  */
 import type { ActivityItem, ProjectSummary } from "@/shared/domain";
 import type { InfoMap } from "@/shared/info-map";
-import type { AlignResult, AudioUploadResult, ExportResult, Job, JobKind, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
+import type { AlignResult, AudioUploadResult, ExportResult, Job, JobKind, OpenProjectResult, ParseScoreResult, TranscribeScoreResult } from "@/shared/jobs";
 import type { DisplaySettings, ProjectFile } from "@/shared/project-file";
 import { mergeAlignment, UNCERTAIN_THRESHOLD, type SyncState } from "@/shared/sync";
 import type {
@@ -86,6 +86,20 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
   function invalidate(projectId: string) {
     urlCache.delete(projectId);
     infoMapCache.delete(projectId);
+  }
+
+  /** A server transcribe job (transcription or bar rewrite), then the parse-score job that imports its score. */
+  function transcribeJob(projectId: string, firstMessage: string, begin: () => Promise<{ job: JobDto }>): Job<TranscribeScoreResult> {
+    return startJob<TranscribeScoreResult>("transcribe", async (ctx) => {
+      ctx.report(0.01, firstMessage);
+      const { job: remote } = await begin();
+      const done = await pollRemoteJob<TranscribeScoreResult>(ctx.id, remote.id, 0.01, 0.9, ctx.signal);
+      if (done.status === "failed" || !done.result) throw new Error(done.error ?? "The transcription failed");
+      const parsed = await pollRemoteJob<ParseScoreResult>(ctx.id, done.result.parseJobId, 0.9, 1, ctx.signal);
+      invalidate(projectId);
+      if (parsed.status === "failed") throw new Error(parsed.error ?? "The transcribed score could not be read");
+      return done.result;
+    });
   }
 
   /* ------------------------------ basics ------------------------------ */
@@ -280,6 +294,23 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
 
     async uploadAudio(projectId, file) {
       return startJob<AudioUploadResult>("upload-audio", (ctx) => uploadAndRegisterAudio(projectId, file, file.name, file.type || "audio/mpeg", ctx, 0, 1));
+    },
+
+    async transcribeScore(projectId, ensemble = "orchestra", options = {}) {
+      const begin = () =>
+        request<{ job: JobDto }>(`/projects/${enc(projectId)}/transcribe-score`, {
+          method: "POST",
+          json: options.resume ? { ensemble, resume: true } : { ensemble },
+        });
+      // A resume asks first, so "nothing is running" (404) rejects here instead of becoming a failed job.
+      const resumed = options.resume ? await begin() : null;
+      return transcribeJob(projectId, "Starting transcription", async () => resumed ?? (await begin()));
+    },
+
+    async rebarTranscription(projectId, bars) {
+      return transcribeJob(projectId, "Rewriting the bars", () =>
+        request<{ job: JobDto }>(`/projects/${enc(projectId)}/transcription/bars`, { method: "POST", json: bars }),
+      );
     },
 
     async removeAudio(projectId) {

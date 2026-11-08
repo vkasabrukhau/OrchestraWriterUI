@@ -2,8 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, ArrowRight, AudioLines, FolderOpen, Music2, RefreshCw, Upload } from "lucide-react";
-import type { AudioUploadResult, Job, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
+import { AlertTriangle, ArrowLeft, ArrowRight, AudioLines, FolderOpen, Music2, RefreshCw, Sparkles, Upload } from "lucide-react";
+import {
+  TRANSCRIPTION_METERS,
+  type AudioUploadResult,
+  type Job,
+  type OpenProjectResult,
+  type ParseScoreResult,
+  type TranscribeEnsemble,
+  type TranscribeScoreResult,
+  type TranscriptionBars,
+  type TranscriptionInfo,
+} from "@/shared/jobs";
 import { api } from "@/lib/api";
 import { useProject } from "@/lib/store/project";
 import { usePlayback } from "@/lib/store/playback";
@@ -15,7 +25,7 @@ import { Chip } from "@/components/ui/Chip";
 import { Waveform } from "@/components/music/Waveform";
 import { JobLine, ProgressLine } from "@/components/export/shared";
 import { Dropzone, hasExtension } from "./Dropzone";
-import { forgetJob, isRunning, useProjectJob } from "./projectJobs";
+import { forgetJob, isRunning, isStarting, useProjectJob } from "./projectJobs";
 
 export const SCORE_EXT = [".musicxml", ".xml", ".mxl"];
 export const AUDIO_EXT = [".mp3"];
@@ -112,6 +122,40 @@ export function ImportPage({ projectId }: { projectId: string }) {
     onSucceeded: onAudioDone,
   });
 
+  // Experimental: no score, but a recording → transcribe one (local MuScriptor service).
+  const transcribe = useProjectJob<TranscribeScoreResult>(`${projectId}:transcribe`, { onSucceeded: onScoreDone });
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  // the running transcribe job rewrites the bars of a transcribed score (no model run)
+  const [rebarring, setRebarring] = useState(false);
+  const startTranscribe = async (ensemble: TranscribeEnsemble) => {
+    setTranscribeError(null);
+    setRebarring(false);
+    try {
+      await transcribe.start(() => api.transcribeScore(projectId, ensemble));
+    } catch (err) {
+      setTranscribeError(err instanceof Error ? err.message : "The transcription could not start.");
+    }
+  };
+  const startRebar = async (bars: TranscriptionBars) => {
+    setTranscribeError(null);
+    setRebarring(true);
+    try {
+      await transcribe.start(() => api.rebarTranscription(projectId, bars));
+    } catch (err) {
+      setTranscribeError(err instanceof Error ? err.message : "The bars could not be rewritten.");
+    }
+  };
+  const transcribeFailure = transcribeError ?? (transcribe.job?.status === "failed" ? (transcribe.job.error ?? "The transcription failed.") : null);
+  const transcribing = isRunning(transcribe.job);
+
+  // A transcription started before a reload keeps running on the server: pick it back up.
+  const resumeTranscribe = Boolean(summary?.transcribing) && !transcribe.jobId;
+  const startTranscribeJob = transcribe.start;
+  useEffect(() => {
+    if (!resumeTranscribe || isStarting(`${projectId}:transcribe`)) return;
+    startTranscribeJob(() => api.transcribeScore(projectId, "orchestra", { resume: true })).catch(() => void refresh());
+  }, [resumeTranscribe, projectId, startTranscribeJob, refresh]);
+
   const hasScore = Boolean(summary?.scoreName);
   // A parse that started on an earlier visit (no local job): the server reports it.
   const serverParsing = !score.job && hasScore && summary?.status === "importing";
@@ -123,7 +167,9 @@ export function ImportPage({ projectId }: { projectId: string }) {
     return () => clearInterval(t);
   }, [serverParsing, refresh]);
 
-  const scorePhase: Phase = score.typeError || score.startError
+  const scorePhase: Phase = transcribing
+    ? "processing"
+    : score.typeError || score.startError
     ? "failed"
     : score.job
       ? score.job.status === "succeeded"
@@ -203,6 +249,18 @@ export function ImportPage({ projectId }: { projectId: string }) {
           facts={facts}
           serverMessage={serverParsing ? (summary?.statusDetail ?? "Parsing score") : null}
           serverError={serverFailed ? (summary?.statusDetail ?? "The score could not be read.") : null}
+          transcribe={{
+            available: Boolean(summary?.hasRecording) && audioPhase === "done",
+            job: transcribe.job,
+            error: transcribeFailure,
+            start: (ensemble) => void startTranscribe(ensemble),
+            rebarring,
+          }}
+          transcription={
+            summary?.transcription
+              ? { info: summary.transcription, error: transcribeFailure, apply: (bars) => void startRebar(bars) }
+              : null
+          }
         />
         <RecordingCard upload={audio} phase={audioPhase} name={audio.file?.name ?? summary?.recordingName ?? ""} />
       </div>
@@ -232,6 +290,8 @@ function ScoreCard({
   facts,
   serverMessage,
   serverError,
+  transcribe,
+  transcription,
 }: {
   upload: ReturnType<typeof useUpload<ParseScoreResult>>;
   phase: Phase;
@@ -239,6 +299,8 @@ function ScoreCard({
   facts: ScoreFacts | null;
   serverMessage: string | null;
   serverError: string | null;
+  transcribe: TranscribeControls;
+  transcription: TranscriptionControls | null;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const pick = () => inputRef.current?.click();
@@ -267,7 +329,20 @@ function ScoreCard({
         </Dropzone>
       )}
 
-      {busy && (
+      {phase === "empty" && <TranscribeOffer transcribe={transcribe} />}
+
+      {busy && isRunning(transcribe.job) && (
+        <ProcessingBox name={transcribe.rebarring ? "Rewriting the bars" : "Transcribing the recording (experimental)"}>
+          <JobLine job={transcribe.job!} />
+          <p className="mt-2 text-xs text-ink-3">
+            {transcribe.rebarring
+              ? "Rewrites the score from the saved transcription; the model does not run again."
+              : "Runs on this computer and can take several minutes. You can leave this page."}
+          </p>
+        </ProcessingBox>
+      )}
+
+      {busy && !isRunning(transcribe.job) && (
         <ProcessingBox name={name} size={upload.file?.size}>
           {job ? <JobLine job={job} /> : <ProgressLine message={serverMessage ?? "Parsing score"} indeterminate />}
         </ProcessingBox>
@@ -283,6 +358,10 @@ function ScoreCard({
       )}
 
       {phase === "done" && facts && <ScoreFactsView name={name} facts={facts} />}
+
+      {phase === "done" && transcription && (
+        <TranscriptionPanel key={JSON.stringify(transcription.info.bars)} transcription={transcription} />
+      )}
 
       <p className="mt-4 text-xs text-ink-3">Up to 64 parts. Repeats are expanded; D.C. and D.S. jumps are reported, not followed.</p>
       <input
@@ -335,6 +414,176 @@ function ScoreFactsView({ name, facts }: { name: string; facts: ScoreFacts }) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+interface TranscribeControls {
+  available: boolean;
+  job: Job<TranscribeScoreResult> | null;
+  error: string | null;
+  start: (ensemble: TranscribeEnsemble) => void;
+  /** the running job rewrites the bars rather than transcribing */
+  rebarring: boolean;
+}
+
+interface TranscriptionControls {
+  info: TranscriptionInfo;
+  error: string | null;
+  apply: (bars: TranscriptionBars) => void;
+}
+
+/** Bar lines repeat every bar, so a shift is only meaningful within one bar. */
+function normalizedShift(shift: number, beatsPerBar: number): number {
+  return ((shift % beatsPerBar) + beatsPerBar) % beatsPerBar;
+}
+
+/**
+ * Experimental: what the transcription is unsure about, and corrections to
+ * its bars. They rewrite the score from the saved transcription (bar lines
+ * move, notes keep their timing) and redo the sync; the model does not run.
+ */
+function TranscriptionPanel({ transcription }: { transcription: TranscriptionControls }) {
+  const { info } = transcription;
+  const [draft, setDraft] = useState<TranscriptionBars>(info.bars);
+  const meter = draft.beatsPerBar ?? info.beatsPerBar;
+  const shift = normalizedShift(draft.shiftBeats, meter);
+  const changed =
+    draft.beatsPerBar !== info.bars.beatsPerBar ||
+    draft.beatScale !== info.bars.beatScale ||
+    shift !== normalizedShift(info.bars.shiftBeats, meter);
+  const detectedMeter = info.detected.beatsPerBar ? `${info.detected.beatsPerBar}/4` : "not found, 4/4 assumed";
+  const bpm = info.detected.bpm;
+  const tempoLabel = (scale: number) => (bpm ? ` (${Math.round(bpm * scale)} BPM)` : "");
+
+  return (
+    <div className="fade-up mt-3 rounded-[var(--radius-lg)] border border-dashed border-line p-4 text-[13px]" role="group" aria-labelledby="transcription-title">
+      <p id="transcription-title" className="font-medium text-ink">
+        Transcribed from the recording <span className="font-normal text-ink-3">· experimental · {info.model}</span>
+      </p>
+      {info.warnings.length > 0 && (
+        <ul className="mt-2 flex flex-col gap-1.5" aria-label="Transcription warnings">
+          {info.warnings.map((w) => (
+            <li key={w}>
+              <Chip tone="warn" className="h-auto! min-h-6 py-1 text-left leading-snug">
+                <AlertTriangle size={12} className="shrink-0" aria-hidden />
+                {w}
+              </Chip>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-ink-3">Bars</p>
+      <div className="mt-1.5 grid gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-xs text-ink-2">
+          Time signature
+          <select
+            value={draft.beatsPerBar ?? ""}
+            onChange={(e) => setDraft({ ...draft, beatsPerBar: e.target.value ? Number(e.target.value) : null })}
+            className="h-8 rounded-[var(--radius-md)] border border-line bg-paper px-2 text-[13px] text-ink"
+          >
+            <option value="">As detected ({detectedMeter})</option>
+            {TRANSCRIPTION_METERS.map((n) => (
+              <option key={n} value={n}>
+                {n}/4
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-ink-2">
+          Tempo
+          <select
+            value={draft.beatScale}
+            onChange={(e) => setDraft({ ...draft, beatScale: Number(e.target.value) as TranscriptionBars["beatScale"] })}
+            className="h-8 rounded-[var(--radius-md)] border border-line bg-paper px-2 text-[13px] text-ink"
+          >
+            <option value={1}>As detected{tempoLabel(1)}</option>
+            <option value={0.5}>Half{tempoLabel(0.5)}</option>
+            <option value={2}>Double{tempoLabel(2)}</option>
+          </select>
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-ink-2">Bar lines</span>
+        <Button variant="outline" size="sm" onClick={() => setDraft({ ...draft, shiftBeats: shift - 1 })}>
+          1 beat earlier
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setDraft({ ...draft, shiftBeats: shift + 1 })}>
+          1 beat later
+        </Button>
+        <span className="text-xs text-ink-3" aria-live="polite">
+          {shift === 0 ? "as detected" : `moved ${shift} beat${shift === 1 ? "" : "s"} later`}
+        </span>
+        <Button size="sm" className="ml-auto" disabled={!changed} onClick={() => transcription.apply({ ...draft, shiftBeats: shift })}>
+          Apply
+        </Button>
+      </div>
+      <p className="mt-2 text-xs text-ink-3">
+        Moves the bar lines only; every note keeps its time in the recording. The score is rewritten and Sync is redone, so
+        manual markers are cleared.
+      </p>
+      {transcription.error && (
+        <p className="mt-2 text-danger" role="alert">
+          {transcription.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const ENSEMBLE_OPTIONS: { value: TranscribeEnsemble; label: string }[] = [
+  { value: "orchestra", label: "Orchestra" },
+  { value: "strings", label: "Strings + keyboard" },
+  { value: "any", label: "Any instrument" },
+];
+
+/** Experimental: make the score from the recording instead of uploading one. */
+function TranscribeOffer({ transcribe }: { transcribe: TranscribeControls }) {
+  const [ensemble, setEnsemble] = useState<TranscribeEnsemble>("orchestra");
+  return (
+    <div className="mt-3 rounded-[var(--radius-lg)] border border-dashed border-line p-3 text-[13px]">
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="min-w-0 flex-1 text-ink-2">
+          No score? Transcribe one from the recording.{" "}
+          <span className="text-ink-3">
+            {transcribe.available
+              ? "Experimental: notes and instruments are guessed by MuScriptor, and there are no written dynamics."
+              : "Upload an MP3 under Recording first."}
+          </span>
+        </p>
+        <label className="sr-only" htmlFor="transcribe-ensemble">
+          Instruments to listen for
+        </label>
+        <select
+          id="transcribe-ensemble"
+          value={ensemble}
+          onChange={(e) => setEnsemble(e.target.value as TranscribeEnsemble)}
+          disabled={!transcribe.available}
+          title="Only these instruments are written into the score"
+          className="h-8 rounded-[var(--radius-md)] border border-line bg-paper px-2 text-[13px] text-ink disabled:opacity-50"
+        >
+          {ENSEMBLE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <Button
+          variant="outline"
+          size="sm"
+          leading={<Sparkles size={13} />}
+          onClick={() => transcribe.start(ensemble)}
+          disabled={!transcribe.available}
+        >
+          {transcribe.error ? "Try again" : "Transcribe"}
+        </Button>
+      </div>
+      {transcribe.error && (
+        <p className="mt-2 text-danger" role="alert">
+          {transcribe.error}
+        </p>
       )}
     </div>
   );

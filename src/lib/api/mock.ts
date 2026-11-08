@@ -7,7 +7,7 @@
  */
 import type { ActivityItem, ProjectSummary } from "@/shared/domain";
 import type { InfoMap } from "@/shared/info-map";
-import type { AlignResult, AudioUploadResult, ExportResult, Job, JobKind, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
+import type { AlignResult, AudioUploadResult, ExportResult, Job, JobKind, OpenProjectResult, ParseScoreResult, TranscribeScoreResult } from "@/shared/jobs";
 import type { DisplaySettings } from "@/shared/project-file";
 import { UNCERTAIN_THRESHOLD, type SyncState } from "@/shared/sync";
 import { DEFAULT_PREFERENCES, type ExportDto, type ProfileDto, type ProgramDto, type ProjectDto, type ProjectUrls, type UsageDto } from "@/shared/api";
@@ -315,6 +315,18 @@ export const mockApi: ApiClient = {
         return { filename: file.name, durationSec, peaks };
       },
     );
+  },
+
+  async transcribeScore() {
+    return simulated<TranscribeScoreResult>("transcribe", [{ until: 1, message: "Transcribing" }], 600, () => {
+      throw new Error("Transcription needs the real API and the local MuScriptor service (npm run ml:serve).");
+    });
+  },
+
+  async rebarTranscription() {
+    return simulated<TranscribeScoreResult>("transcribe", [{ until: 1, message: "Rewriting the bars" }], 600, () => {
+      throw new Error("Transcription needs the real API and the local MuScriptor service (npm run ml:serve).");
+    });
   },
 
   async removeAudio(projectId) {

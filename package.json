@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "dev:aws": "node --env-file=.env.aws node_modules/next/dist/bin/next dev",
+    "ml:serve": "cd ml && uv run uvicorn server:app --host 127.0.0.1 --port 8333",
+    "ml:test": "cd ml && uv run python -m unittest discover -s tests",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
