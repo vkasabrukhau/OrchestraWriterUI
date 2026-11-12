@@ -33,15 +33,23 @@ Migrations here are additive (new tables, nullable columns), so the deployed
 app keeps working; do not add a destructive one without coordinating.
 
 **Deploys from GitHub Actions.** The `orchestra-writer-github-deploy` role
-trusts `repo:vkasabrukhau/OrchestraWriterUI:ref:refs/heads/main` (and still the
-old repo). A repo admin sets the variable to turn deploys on:
+trusts `repo:vkasabrukhau/OrchestraWriterUI:environment:production` and
+`...:ref:refs/heads/main`, each also in GitHub's id form
+(`repo:vkasabrukhau@<ownerId>/OrchestraWriterUI@<repoId>:...`), and still the
+old repo. The `environment:production` subject is the one that matters: the
+deploy job runs in the `production` environment, and GitHub then sends the
+environment instead of the branch. The repo variable that turns deploys on is
+set (2026-11-12):
 
 ```bash
 gh variable set AWS_DEPLOY_ROLE_ARN -R vkasabrukhau/OrchestraWriterUI \
   --body arn:aws:iam::ACCOUNT_ID:role/orchestra-writer-github-deploy
 ```
 
-The next push to `main` then replaces the App Runner site with this app.
+The App Runner health check must be HTTP `/api/health` (the API lives under
+`/api`). The old app answered only `/health`; `scripts/deploy-init.sh` sets the
+right path. The deploy workflow fails when App Runner rolls a deployment back,
+so a failed health check shows up as a red run.
 
 ## Transcription pipeline (Step Functions + Lambda): parked
 

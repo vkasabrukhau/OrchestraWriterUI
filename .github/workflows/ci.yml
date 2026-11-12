@@ -111,6 +111,10 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run build
+      # Migrate before the server starts. Better Auth checks its tables the
+      # moment the auth module loads and caches a failed check until restart,
+      # so on this empty database the boot-time migrations come too late.
+      - run: npm run db:migrate && npm run db:seed
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()

@@ -59,30 +59,47 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push image
+        id: build
         env:
           IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.APP_NAME }}
         run: |
           docker build -t "$IMAGE:${GITHUB_SHA}" -t "$IMAGE:latest" .
+          echo "pushed_at=$(date +%s)" >> "$GITHUB_OUTPUT"
           docker push "$IMAGE:${GITHUB_SHA}"
           docker push "$IMAGE:latest"
 
       - name: Wait for App Runner rollout
         id: rollout
+        env:
+          PUSHED_AT: ${{ steps.build.outputs.pushed_at }}
         run: |
           # App Runner watches the :latest tag and starts a deployment on its own.
-          # Poll until the service leaves OPERATION_IN_PROGRESS and is RUNNING again.
+          # Wait for that deployment (the newest operation started after the push)
+          # to finish. A deployment that fails its health check rolls back and
+          # leaves the service RUNNING on the old image, so the service status
+          # alone would report success; the operation status is what counts.
           ARN=$(aws apprunner list-services \
             --query "ServiceSummaryList[?ServiceName=='${APP_NAME}'].ServiceArn" --output text)
           if [ -z "$ARN" ]; then
             echo "::notice::Image pushed. No App Runner service named ${APP_NAME} yet; scripts/deploy-init.sh creates it from this image."
             exit 0
           fi
-          sleep 30
-          for i in $(seq 1 60); do
-            STATUS=$(aws apprunner describe-service --service-arn "$ARN" --query Service.Status --output text)
-            echo "[$i] $STATUS"
-            if [ "$STATUS" = "RUNNING" ] && [ "$i" -gt 1 ]; then break; fi
-            if [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "DELETE_FAILED" ]; then exit 1; fi
+          for i in $(seq 1 80); do
+            read -r OP_STATUS OP_STARTED <<<"$(aws apprunner list-operations --service-arn "$ARN" --max-results 1 \
+              --query 'OperationSummaryList[0].[Status,StartedAt]' --output text)"
+            STARTED=$(date -d "$OP_STARTED" +%s 2>/dev/null || echo 0)
+            if [ "$STARTED" -ge "$PUSHED_AT" ]; then
+              echo "[$i] $OP_STATUS"
+              case "$OP_STATUS" in
+                SUCCEEDED) break ;;
+                FAILED|ROLLBACK_*)
+                  echo "::error::App Runner deployment ended $OP_STATUS; the service is still on the previous image. Logs: aws logs tail /aws/apprunner/${APP_NAME}/$(basename "$ARN")/application --since 30m"
+                  exit 1 ;;
+              esac
+            else
+              echo "[$i] waiting for App Runner to start the deployment"
+            fi
+            if [ "$i" -eq 80 ]; then echo "::error::Timed out after 20 minutes waiting for the App Runner deployment."; exit 1; fi
             sleep 15
           done
           URL=$(aws apprunner describe-service --service-arn "$ARN" --query Service.ServiceUrl --output text)
