@@ -61,3 +61,35 @@ Append-only. Newest entry at the bottom. Written by `/handoff`.
 - `npx vitest run --project unit`: 343 passed.
 - `npx playwright test` on `workflow-recording`, `score-navigation`, `open-project`, `sync-workspace` and `workflow-score-only`: all passed. `sync-workspace` passed 3 more times with `--repeat-each=3`.
 - Checked by eye in Chromium screenshots at 1440×900.
+
+## 2026-11-12 — Markers as fixed anchors; branch committed and rebased for one PR
+
+**Done**
+- Aligners (`src/lib/align/anchors.ts`, `dtw.ts`, `index.ts`, `integrated/{index,coarse,optimize}.ts`, `sync-function.ts`): applied markers are fixed anchors inside both aligners. The broad match and DTW may not cross them, the joint fit holds a knot on each, and the tempo around them is refitted. Tests in `tests/unit/align/anchors.test.ts`.
+- `src/shared/sync.ts`: strict `parseSyncState` rejects an `averageConfidence` outside [0, 100] again (an API test caught the revamp clamping it).
+- Git: all the uncommitted work (integrated sync + revamp) is now 5 commits on `feat/sync-revamp`, rebased onto `origin/main` (47a07ce). The owner chose one PR with several commits instead of separate `feat/integrated-sync` and revamp PRs. `feat/integrated-sync` is now unused.
+- `docs/STATE.md` updated for this branch (the PR that merges it); `.claude/rules/sync.md` and ADR 0019 updated for anchors.
+
+**Decisions**
+- ADR 0021 (`docs/decisions/0021-markers-as-alignment-anchors.md`): markers are hard anchors in the fit; `mergeAlignment` stays as the final monotonic pass. Proposed.
+- One PR for the integrated-sync and revamp work (owner, 2026-11-12).
+
+**Open questions / blockers**
+- Not pushed and no PR opened yet; waiting for the owner's OK.
+- The anchors have only been tested on synthetic audio. They still need a check on the owner's 354-bar Tchaikovsky project with a real recording.
+- Hard vs soft anchors: a rough marker now bends the fit around it. Revisit if users place markers loosely (ADR 0021).
+- Local environment: `npm ci` fails with EACCES on `~/.npm/_cacache` in the sandbox (worked with `--cache` in a temp dir); `docker` is at `~/.docker/bin`, not on PATH.
+- The defaults from the previous entry still need the owner's confirmation (recompute threshold, deletions waiting, per-browser layout).
+
+**Next steps**
+1. Optionally run the `reviewer` agent on `origin/main..HEAD`.
+2. Push `feat/sync-revamp` and open the PR. Its body should note the OSMD dependency (BSD-3-Clause; Verovio excluded as LGPL-3.0).
+3. On the Tchaikovsky project: place markers on wrong bars, recompute, check that the bars after them improve. Also check the roll and drag speed (previous entry, step 1).
+4. Delete the stale `feat/integrated-sync` branch once the PR is up.
+5. The remaining items from the previous entry (perf suite, fixtures, jsdom tests, narrow-window sidebar).
+
+**Verified by**
+- On the rebased branch: `npm run lint` clean; `npm run typecheck` clean.
+- `npm test`: 353 passed (31 files).
+- `npm run test:api` (Postgres + S3Mock via docker compose): 57 passed, after the strict-validation fix (1 failed before it).
+- `npm run test:e2e`: 14 passed (2.6 min).
