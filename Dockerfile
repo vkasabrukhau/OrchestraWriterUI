@@ -19,6 +19,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json next.config.ts tsconfig.json ./
 COPY src ./src
+# next build type-checks every .ts/.tsx under the context, including the tests
+# in src/ (e.g. src/components/ui/toast.test.tsx). Their jest-dom matchers
+# (toBeInTheDocument, ...) are typed by this setup file; without it the build fails.
+COPY tests/setup-dom.ts ./tests/setup-dom.ts
 # public/ holds no tracked files today (fonts come from next/font and a CDN).
 # When static files are added there, add `COPY public ./public` here.
 RUN mkdir -p public
