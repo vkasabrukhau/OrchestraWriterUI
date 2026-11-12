@@ -4,7 +4,25 @@ import { create } from "zustand";
 import type { InfoMap } from "@/shared/info-map";
 import type { DisplaySettings, PartPosition } from "@/shared/project-file";
 import { DEFAULT_SECTION_COLORS, type Section } from "@/shared/sections";
-import type { ManualMarker, SyncState } from "@/shared/sync";
+import { appliedOf, markerBounds, markerPosition, normalizeMarkerLabel, sameMarkerSpot, type ManualMarker, type SyncState } from "@/shared/sync";
+import { canonicalPosition, normalizeMarkers } from "@/lib/score/stamps";
+
+function newMarker(measure: number, position: number, startSec: number): ManualMarker {
+  const marker: ManualMarker = { id: `mk_${measure}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, measure, startSec, createdAt: new Date().toISOString(), basis: "time" };
+  // downbeat markers keep the original shape (no position field)
+  if (position > 0) marker.position = position;
+  return marker;
+}
+
+export type MarkerEditResult = { ok: true; id: string } | { ok: false; reason: "not-found" | "occupied" | "out-of-order" | "no-sync"; message: string };
+
+const fmtSec = (t: number) => {
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return `${m}:${s.toFixed(3).padStart(6, "0")}`;
+};
+
+const sortMarkers = (list: ManualMarker[]) => list.sort((a, b) => a.measure - b.measure || markerPosition(a) - markerPosition(b));
 import type { ProjectStage, ProjectSummary } from "@/shared/domain";
 import type { ProjectDto } from "@/shared/api";
 import { api, errorMessage } from "@/lib/api";
@@ -65,10 +83,23 @@ interface ProjectState {
   setLabelMode: (m: DisplaySettings["labelMode"]) => void;
   setReducedMotion: (v: boolean) => void;
   setGlowScale: (v: number) => void;
-  // sync
-  addMarker: (measure: number, startSec: number) => void;
-  nudgeMarker: (measure: number, deltaSec: number) => void;
-  removeMarker: (measure: number) => void;
+  // sync (ADR 0018: edits change `manual` only; timing reads `applied` until a recompute)
+  /** the recording's length, for marker bounds (seconds; Infinity when unknown) */
+  recordingSec: number;
+  setRecordingSec: (sec: number) => void;
+  /** pin a note (measure + position in it, 0 = downbeat) to a recording time; on a marked note, moves that marker */
+  addMarker: (measure: number, startSec: number, position?: number, label?: string) => MarkerEditResult;
+  nudgeMarker: (measure: number, deltaSec: number, position?: number) => MarkerEditResult;
+  removeMarker: (measure: number, position?: number) => ManualMarker | null;
+  updateMarker: (id: string, patch: Partial<Pick<ManualMarker, "measure" | "position" | "startSec" | "label">>) => MarkerEditResult;
+  removeMarkerById: (id: string) => ManualMarker | null;
+  /** put a removed or changed marker back exactly (Undo) */
+  restoreMarker: (m: ManualMarker) => MarkerEditResult;
+  /** drop a pending change: the applied version comes back (or the marker leaves, when it was never applied) */
+  revertMarker: (id: string) => void;
+  /** the whole manual list back (Undo of any marker command) */
+  restoreManual: (manual: ManualMarker[]) => void;
+  /** a run's result from the server (auto, applied); local manual edits are kept */
   replaceAuto: (sync: SyncState) => void;
   // persistence
   /** alias of saveNow (the toolbar's Save button) */
@@ -200,6 +231,43 @@ export const useProject = create<ProjectState>((set, get) => {
     if (get().dirty) schedule("sync", SYNC_SAVE_DEBOUNCE_MS);
   };
 
+  const noSync: MarkerEditResult = { ok: false, reason: "no-sync", message: "The alignment is not loaded yet." };
+  const canon = (s: ProjectState, measure: number, position: number) => (position > 0 && s.infoMap ? canonicalPosition(s.infoMap, measure, position) : Math.max(0, position));
+  /** a new manual list; `applied` keeps its reference (legacy states get it pinned first) */
+  const withManual = (sync: SyncState, manual: ManualMarker[]): SyncState => ({ ...sync, applied: appliedOf(sync), manual });
+  /** where a note lands now (audible timing), for a nudge that starts a marker */
+  const landingOf = (sync: SyncState, measure: number, position: number): number => {
+    const i = sync.auto.findIndex((a) => a.n === measure);
+    const a = sync.auto[i];
+    if (!a) return 0;
+    const next = sync.auto[i + 1];
+    return a.startSec + (next ? position * (next.startSec - a.startSec) : 0);
+  };
+  /**
+   * Put `marker` into `sync.manual` (which the builder returns without it),
+   * after checking it is free and in order (markerBounds against the edited set).
+   */
+  const commit = (
+    build: (sync: SyncState) => { sync: SyncState; marker: ManualMarker } | { error: Extract<MarkerEditResult, { ok: false }> },
+  ): MarkerEditResult => {
+    const s = get();
+    if (!s.sync) return noSync;
+    const built = build(s.sync);
+    if ("error" in built) return built.error;
+    const { sync, marker } = built;
+    const pos = markerPosition(marker);
+    if (sync.manual.some((m) => sameMarkerSpot(m, marker.measure, pos))) {
+      return { ok: false, reason: "occupied", message: "That note already has a marker." };
+    }
+    const { low, high } = markerBounds(sync.auto, sync.manual, { measure: marker.measure, position: pos }, { durationSec: s.recordingSec });
+    if (marker.startSec < low - 1e-9 || marker.startSec > high + 1e-9) {
+      const message = high < low ? "There is no room for a marker here between its neighbours." : `Must be between ${fmtSec(low)} and ${fmtSec(high)}.`;
+      return { ok: false, reason: "out-of-order", message };
+    }
+    editSync((st) => (st.sync ? withManual(st.sync, sortMarkers([...sync.manual, marker])) : null));
+    return { ok: true, id: marker.id };
+  };
+
   const saveNow = async () => {
     await Promise.all([flush("display"), flush("sync"), flush("stage")]);
     await Promise.all([...inflight]);
@@ -272,18 +340,24 @@ export const useProject = create<ProjectState>((set, get) => {
           if (!fresh()) return;
           if (saved) savedAt = saved.updatedAt;
         }
+        const sync = project.sync && infoMap ? normalizeMarkers(project.sync, infoMap) : project.sync;
         set({
           status: "ready",
           loading: false,
           summary: summaryOf(project),
           infoMap,
           display,
-          sync: project.sync,
+          sync,
           peaks: project.audioPeaks ?? (infoMap ? peaksFromInfoMap(infoMap) : null),
           audioUrl,
           dirty: false,
           savedAt,
         });
+        // a legacy row was brought to the current marker form: store it
+        if (sync && sync !== project.sync) {
+          set({ dirty: true });
+          schedule("sync", SYNC_SAVE_DEBOUNCE_MS);
+        }
       } catch (err) {
         if (!fresh()) return;
         set({ status: "error", loading: false, error: errorMessage(err, "The project could not be loaded") });
@@ -315,7 +389,7 @@ export const useProject = create<ProjectState>((set, get) => {
         const infoMap = patch.infoMap ?? s.infoMap;
         const editedMeanwhile = editVersion !== versionAtStart;
         const keepLocal = (kind: SaveKind) => editedMeanwhile || pendingKinds.has(kind) || inflightKinds.has(kind);
-        if (!keepLocal("sync")) patch.sync = project.sync;
+        if (!keepLocal("sync")) patch.sync = project.sync && infoMap ? normalizeMarkers(project.sync, infoMap) : project.sync;
         if (!keepLocal("display")) patch.display = project.display ?? s.display ?? (infoMap ? defaultDisplay(infoMap) : null);
         patch.peaks = project.audioPeaks ?? (infoMap ? peaksFromInfoMap(infoMap) : null);
         if (project.hasRecording) {
@@ -399,33 +473,83 @@ export const useProject = create<ProjectState>((set, get) => {
     setReducedMotion: (reducedMotion) => editDisplay((s) => (s.display ? { ...s.display, reducedMotion } : null)),
     setGlowScale: (glowScale) => editDisplay((s) => (s.display ? { ...s.display, glowScale } : null)),
 
-    addMarker: (measure, startSec) =>
-      editSync((s) => {
-        if (!s.sync) return null;
-        const manual = s.sync.manual.filter((m) => m.measure !== measure);
-        const marker: ManualMarker = { id: `mk_${measure}_${Date.now().toString(36)}`, measure, startSec, createdAt: new Date().toISOString() };
-        return { ...s.sync, manual: [...manual, marker].sort((a, b) => a.measure - b.measure) };
+    recordingSec: Infinity,
+    setRecordingSec: (recordingSec) => set({ recordingSec: Number.isFinite(recordingSec) && recordingSec > 0 ? recordingSec : Infinity }),
+
+    addMarker: (measure, startSec, position = 0, label) => {
+      const s = get();
+      const existing = s.sync?.manual.find((m) => sameMarkerSpot(m, measure, canon(s, measure, position)));
+      if (existing) return get().updateMarker(existing.id, label === undefined ? { startSec } : { startSec, label });
+      return commit((sync) => {
+        const pos = canon(get(), measure, position);
+        const marker = newMarker(measure, pos, Math.max(0, startSec));
+        const l = normalizeMarkerLabel(label);
+        if (l) marker.label = l;
+        return { sync, marker };
+      });
+    },
+
+    nudgeMarker: (measure, deltaSec, position = 0) => {
+      const s = get();
+      if (!s.sync) return noSync;
+      const pos = canon(s, measure, position);
+      const existing = s.sync.manual.find((m) => sameMarkerSpot(m, measure, pos));
+      if (existing) return get().updateMarker(existing.id, { startSec: Math.max(0, existing.startSec + deltaSec) });
+      return get().addMarker(measure, Math.max(0, landingOf(s.sync, measure, pos) + deltaSec), pos);
+    },
+
+    removeMarker: (measure, position = 0) => {
+      const s = get();
+      const m = s.sync?.manual.find((x) => sameMarkerSpot(x, measure, canon(s, measure, position)));
+      return m ? get().removeMarkerById(m.id) : null;
+    },
+
+    updateMarker: (id, patch) =>
+      commit((sync) => {
+        const cur = sync.manual.find((m) => m.id === id);
+        if (!cur) return { error: { ok: false, reason: "not-found", message: "That marker no longer exists." } as const };
+        const next: ManualMarker = { ...cur, basis: "time" };
+        if (patch.measure !== undefined) next.measure = patch.measure;
+        if (patch.position !== undefined || patch.measure !== undefined) {
+          const pos = canon(get(), next.measure, patch.position ?? markerPosition(cur));
+          if (pos > 0) next.position = pos;
+          else delete next.position;
+        }
+        if (patch.startSec !== undefined) next.startSec = Math.max(0, patch.startSec);
+        if ("label" in patch) {
+          const l = normalizeMarkerLabel(patch.label);
+          if (l) next.label = l;
+          else delete next.label;
+        }
+        return { sync: { ...sync, manual: sync.manual.filter((m) => m.id !== id) }, marker: next };
       }),
 
-    nudgeMarker: (measure, deltaSec) =>
+    removeMarkerById: (id) => {
+      const sync = get().sync;
+      const m = sync?.manual.find((x) => x.id === id) ?? null;
+      if (!m) return null;
+      editSync((s) => (s.sync ? withManual(s.sync, s.sync.manual.filter((x) => x.id !== id)) : null));
+      return m;
+    },
+
+    restoreMarker: (m) => commit((sync) => ({ sync: { ...sync, manual: sync.manual.filter((x) => x.id !== m.id) }, marker: { ...m } })),
+
+    revertMarker: (id) =>
       editSync((s) => {
         if (!s.sync) return null;
-        const existing = s.sync.manual.find((m) => m.measure === measure);
-        const base = existing?.startSec ?? s.sync.auto.find((a) => a.n === measure)?.startSec ?? 0;
-        const startSec = Math.max(0, base + deltaSec);
-        const manual = s.sync.manual.filter((m) => m.measure !== measure);
-        const marker: ManualMarker = {
-          id: existing?.id ?? `mk_${measure}_${Date.now().toString(36)}`,
-          measure,
-          startSec,
-          createdAt: existing?.createdAt ?? new Date().toISOString(),
-        };
-        return { ...s.sync, manual: [...manual, marker].sort((a, b) => a.measure - b.measure) };
+        const applied = appliedOf(s.sync).find((m) => m.id === id);
+        const rest = s.sync.manual.filter((m) => m.id !== id);
+        return withManual(s.sync, applied ? sortMarkers([...rest, { ...applied }]) : rest);
       }),
 
-    removeMarker: (measure) => editSync((s) => (s.sync ? { ...s.sync, manual: s.sync.manual.filter((m) => m.measure !== measure) } : null)),
+    restoreManual: (manual) => editSync((s) => (s.sync ? withManual(s.sync, sortMarkers(manual.map((m) => ({ ...m })))) : null)),
 
-    replaceAuto: (sync) => editSync((s) => ({ ...sync, manual: s.sync?.manual ?? [] })),
+    replaceAuto: (sync) =>
+      editSync((s) => {
+        const infoMap = s.infoMap;
+        const next = infoMap ? normalizeMarkers(sync, infoMap) : sync;
+        return { ...next, manual: s.sync?.manual ?? next.manual };
+      }),
   };
 });
 

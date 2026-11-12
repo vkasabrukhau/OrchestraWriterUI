@@ -3,6 +3,16 @@
 import { create } from "zustand";
 import type { AudioEngine } from "@/lib/audio/engine";
 
+export interface Cue {
+  /** transport seconds */
+  at: number;
+  /** playback bar (1-based) and where in it (fraction of the bar) */
+  measure: number;
+  position: number;
+  /** "bar 12, beat 3" */
+  label: string;
+}
+
 interface PlaybackState {
   playing: boolean;
   /** seconds, recording time (or score time when audio is generated) */
@@ -12,6 +22,16 @@ interface PlaybackState {
   volume: number;
   muted: boolean;
   loop: boolean;
+  /**
+   * a passage to repeat (transport seconds): playback jumps back to `start`
+   * on reaching `end`, and play from outside it starts at `start`
+   */
+  range: { start: number; end: number } | null;
+  /**
+   * the start point: a note picked in the score (transport seconds plus where
+   * it is in the score). Play resumes from the playhead; playFromCue starts here.
+   */
+  cue: Cue | null;
   /** the audio source; null = silent clock (tests, auth demo) */
   engine: AudioEngine | null;
   /** false while an attached engine is loading */
@@ -30,6 +50,12 @@ interface PlaybackState {
   setVolume: (v: number) => void;
   toggleMute: () => void;
   toggleLoop: () => void;
+  /** set (or clear with null) the passage to repeat */
+  setRange: (range: { start: number; end: number } | null) => void;
+  /** set (or clear with null) the start point */
+  setCue: (cue: Cue | null) => void;
+  /** seek to the start point and play */
+  playFromCue: () => void;
   /** advance by dt seconds (called by the clock every frame) */
   tick: (dt: number) => void;
   reset: (duration: number, time?: number) => void;
@@ -85,6 +111,8 @@ export const usePlayback = create<PlaybackState>((set, get) => {
     volume: 0.8,
     muted: false,
     loop: false,
+    range: null,
+    cue: null,
     engine: null,
     ready: true,
     error: null,
@@ -100,7 +128,8 @@ export const usePlayback = create<PlaybackState>((set, get) => {
       }
       const s = get();
       set({ engine, ready: false, error: null, playing: false });
-      engine.setRate(s.rate);
+      if (engine.kind === "recording") engine.setRate(s.rate);
+      else if (s.rate !== 1) set({ rate: 1 });
       engine.setVolume(s.volume);
       engine.setMuted(s.muted);
       engine
@@ -122,12 +151,16 @@ export const usePlayback = create<PlaybackState>((set, get) => {
       const s = get();
       const engine = s.engine;
       if (!engine) {
+        if (s.range && (s.time < s.range.start || s.time >= s.range.end)) set({ time: s.range.start });
         set({ playing: true });
         return;
       }
       // a failed load leaves nothing to play
       if (!s.ready && s.error) return;
-      if (s.duration > 0 && s.time >= s.duration - 0.05) {
+      if (s.range && (s.time < s.range.start || s.time >= s.range.end - 0.05)) {
+        engine.seek(s.range.start);
+        set({ time: s.range.start });
+      } else if (s.duration > 0 && s.time >= s.duration - 0.05) {
         engine.seek(0);
         set({ time: 0 });
       }
@@ -160,8 +193,11 @@ export const usePlayback = create<PlaybackState>((set, get) => {
 
     setDuration: (d) => set((s) => ({ duration: d, time: Math.min(s.time, d) })),
 
+    // speed only ever reaches the real recording (owner: listening only; generated playback stays at 1×)
     setRate: (r) => {
-      get().engine?.setRate(r);
+      const engine = get().engine;
+      if (engine && engine.kind !== "recording") return;
+      engine?.setRate(r);
       set({ rate: r });
     },
 
@@ -182,12 +218,34 @@ export const usePlayback = create<PlaybackState>((set, get) => {
 
     toggleLoop: () => set((s) => ({ loop: !s.loop })),
 
+    setCue: (cue) => set({ cue }),
+
+    playFromCue: () => {
+      const cue = get().cue;
+      if (cue) get().seek(cue.at);
+      if (!get().playing) get().play();
+    },
+
+    setRange: (range) => {
+      if (!range) return set({ range: null });
+      const d = get().duration;
+      const start = Math.max(0, Math.min(range.start, range.end));
+      const end = Math.min(d > 0 ? d : Infinity, Math.max(range.start, range.end));
+      set({ range: end - start > 0.05 ? { start, end } : null });
+    },
+
     tick: (dt) => {
       const s = get();
       if (!s.playing) return;
       const engine = s.engine;
       if (engine) {
         const raw = engine.currentTime();
+        if (s.range && raw >= s.range.end) {
+          resetSmoothing();
+          engine.seek(s.range.start);
+          set({ time: s.range.start });
+          return;
+        }
         const ended = engine.ended() || (s.duration > 0 && raw >= s.duration);
         if (ended) {
           resetSmoothing();
@@ -220,6 +278,10 @@ export const usePlayback = create<PlaybackState>((set, get) => {
         return;
       }
       const next = s.time + dt * s.rate;
+      if (s.range && next >= s.range.end) {
+        set({ time: s.range.start });
+        return;
+      }
       if (next >= s.duration) {
         if (s.loop) set({ time: 0 });
         else set({ time: s.duration, playing: false });
@@ -236,7 +298,7 @@ export const usePlayback = create<PlaybackState>((set, get) => {
         engine.pause();
         engine.seek(t);
       }
-      set({ duration, time: t, playing: false });
+      set({ duration, time: t, playing: false, range: null, cue: null });
     },
   };
 });
