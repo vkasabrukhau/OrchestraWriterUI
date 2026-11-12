@@ -1,7 +1,7 @@
 # 0009. Alignment: chroma DTW in a browser Web Worker, results stored by the API
 
 Date: 2026-10-26
-Status: accepted (resolves open question 2 in STATE.md)
+Status: accepted (resolves open question 2 in STATE.md); the default aligner is refined by 0014, chroma DTW stays as its fallback
 
 ## Context
 The skill `score-audio-alignment` listed synthesize-and-match, chroma DTW and
