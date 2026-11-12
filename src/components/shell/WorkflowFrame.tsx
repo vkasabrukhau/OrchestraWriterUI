@@ -7,12 +7,14 @@ import { useEditor } from "@/lib/store/editor";
 import { isEditorPath } from "./editor-steps";
 import { PlaybackSourceMount } from "@/components/music/PlaybackSourceMount";
 import { ProjectLoader } from "./ProjectLoader";
+import { WorkflowMain } from "./WorkflowMain";
 import { WorkflowNav } from "./WorkflowNav";
 
 /**
  * The frame around a project's step pages. Editor steps get the menu bar and
  * tool bar, fill the window and set `html[data-surface="editor"]`; the other
- * steps keep the workflow header and the centered page column.
+ * steps keep the workflow header and `WorkflowMain` (Sync full width, the
+ * rest in the centered page column).
  */
 export function WorkflowFrame({ projectId, children }: { projectId: string; children: ReactNode }) {
   const pathname = usePathname();
@@ -51,7 +53,7 @@ export function WorkflowFrame({ projectId, children }: { projectId: string; chil
       <WorkflowNav projectId={projectId} />
       <ProjectLoader projectId={projectId}>
         <PlaybackSourceMount />
-        <main className="mx-auto w-full max-w-[1440px] flex-1 px-5 pb-16 pt-7 md:px-8">{children}</main>
+        <WorkflowMain>{children}</WorkflowMain>
       </ProjectLoader>
     </div>
   );

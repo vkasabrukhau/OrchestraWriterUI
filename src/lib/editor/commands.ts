@@ -175,8 +175,8 @@ export function buildCommands(c: CommandContext): Commands {
 
     cmd("play.toggle", c.playing ? "Pause" : "Play", a.togglePlay, { shortcut: { key: " " }, shortcutElsewhere: true }),
     cmd("play.start", "Go to start", () => a.seek(0), { shortcut: { key: "Home" }, shortcutElsewhere: true }),
-    cmd("play.back", "Back 5 seconds", () => a.skip(-5), { shortcut: { key: "ArrowLeft" }, shortcutElsewhere: true }),
-    cmd("play.forward", "Forward 5 seconds", () => a.skip(5), { shortcut: { key: "ArrowRight" }, shortcutElsewhere: true }),
+    cmd("play.back", "Back 5 seconds", () => a.skip(-5), { shortcut: { key: "ArrowLeft", shift: true }, shortcutElsewhere: true }),
+    cmd("play.forward", "Forward 5 seconds", () => a.skip(5), { shortcut: { key: "ArrowRight", shift: true }, shortcutElsewhere: true }),
     cmd("play.goto", "Go to bar…", () => a.openDialog("goto"), { shortcut: { key: "g", mod: true }, enabled: c.ready }),
     cmd("play.loop", "Loop", a.toggleLoop, { checked: c.loop }),
     cmd("play.rate1", "1×", () => a.setRate(1), { checked: c.rate === 1 }),

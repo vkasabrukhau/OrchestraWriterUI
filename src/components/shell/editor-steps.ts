@@ -1,6 +1,6 @@
 /**
  * Project steps that use the editor chrome and `html[data-surface="editor"]`
- * (ADR 0014). Sync and Preview move here in a follow-up. Not a client module:
+ * (ADR 0022). Sync and Preview move here in a follow-up. Not a client module:
  * the root layout also reads it to set the surface before first paint.
  */
 export const EDITOR_STEPS = ["customize"] as const;

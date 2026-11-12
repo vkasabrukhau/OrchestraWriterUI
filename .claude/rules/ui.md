@@ -21,6 +21,6 @@ paths:
 - Label things with plain part names. Every color encoding has a visible legend.
 - Playback controls appear on Sync, Customize, and Preview, with the same
   keyboard shortcuts (`PlaybackShortcuts`) and the same playback store.
-  Pages with the workflow header use `Transport`; editor pages (ADR 0014) use
+  Pages with the workflow header use `Transport`; editor pages (ADR 0022) use
   `EditorTransport`, a compact layout of the same controls. Both live in
   `src/components/music/Transport.tsx`; don't add a third.

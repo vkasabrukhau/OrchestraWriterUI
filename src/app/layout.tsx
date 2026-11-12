@@ -40,7 +40,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${inter.variable} ${lora.variable} h-full`} suppressHydrationWarning>
       <head>
-        {/* editor pages (ADR 0014) get their surface tokens before first paint */}
+        {/* editor pages (ADR 0022) get their surface tokens before first paint */}
         <script dangerouslySetInnerHTML={{ __html: EDITOR_SURFACE_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col">

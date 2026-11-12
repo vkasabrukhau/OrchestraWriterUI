@@ -24,7 +24,7 @@ Append-only. Newest entry at the bottom. Written by `/handoff`.
   - End-to-end: `tests/e2e/customize-editor.spec.ts`; `workflow-recording.spec.ts` now picks the level-2 heading.
 
 **Decisions**
-- Stage stays dark. New neutral "studio" color set (teal accent) on editor pages only. The editor header goes on Customize first; Sync and Preview follow. Recorded in [ADR 0014](../decisions/0014-editor-chrome.md) (proposed).
+- Stage stays dark. New neutral "studio" color set (teal accent) on editor pages only. The editor header goes on Customize first; Sync and Preview follow. Recorded in [ADR 0022](../decisions/0022-editor-chrome.md) (proposed).
 - Left out the mockup's later-phase items: pitch, articulation, harmony background, Mappings tab, note trails, visual forms, Dynamic glow toggle, opacity, and the Adobe logo.
 - Glow size stays global. A per-part size would read as loudness.
 - No Hand or Move tools until the stage can zoom and pan.
@@ -42,14 +42,14 @@ Append-only. Newest entry at the bottom. Written by `/handoff`.
   5. Below `lg` the step tabs are hidden, below `md` the menu bar is hidden, and the stage shrinks below `lg`.
   6. Dark/light tints of ±35–55 % compete with brightness, and the "Brass tints" palette puts every section in one hue.
   7. Disabled shortcuts still swallow their keys (e.g. Escape with nothing selected).
-- Needs review: `.claude/rules/ui.md` says Sync, Customize and Preview use "the same component" for playback controls, but `EditorTransport` is a second one. Note this in ADR 0014 or update the rule.
+- Needs review: `.claude/rules/ui.md` says Sync, Customize and Preview use "the same component" for playback controls, but `EditorTransport` is a second one. Note this in ADR 0022 or update the rule.
 - The teal accent `#22766b` is close to the default Woodwinds `#5cba9a`.
 - 64-part performance is not measured. No mock score has 64 loadable parts.
 
 **Next steps**
 1. Fix should-fix items 1–5 and 7. Add a test that undo survives `refresh()`.
 2. Narrow the tints (about ±15 % lightness) and remove or rework the "Brass tints" palette.
-3. Settle the `ui.md` / `EditorTransport` exception and accept ADR 0014.
+3. Settle the `ui.md` / `EditorTransport` exception and accept ADR 0022.
 4. Fix the nits:
    - Set `data-surface` before first paint.
    - Bind the editor store during render.
@@ -91,16 +91,16 @@ Append-only. Newest entry at the bottom. Written by `/handoff`.
   - Tints are 5 steps within ±15 % HSL lightness.
   - "Brass tints" is replaced by "Color-blind safe" (Okabe–Ito hues). A test checks that every palette has one distinct hue per section.
 - Performance (`music/Waveform.tsx`): the bar `<rect>`s are memoized, so the per-frame re-render while playing only moves the clip.
-- Docs: `.claude/rules/ui.md` names `EditorTransport` as the editor variant. ADR 0014 records the surface script, the transport, the narrow layouts, tints, and that teal sits next to the Woodwinds dot on a selected row.
+- Docs: `.claude/rules/ui.md` names `EditorTransport` as the editor variant. ADR 0022 records the surface script, the transport, the narrow layouts, tints, and that teal sits next to the Woodwinds dot on a selected row.
 
 **Decisions**
 - Undo coalescing is time-window based (merge key + 1 s), not open/close gestures, so a missed end event can't leave a step open. Drags still use gestures.
 - `bind` runs in a layout effect, not during render. This avoids zustand "update while rendering another component" warnings, and the stale first render is never painted.
 - On a disabled shortcut, ⌘/Ctrl combinations are still consumed and plain keys pass through.
-- ADR 0014 was updated but is still **proposed**. Accepting it needs a human.
+- ADR 0022 was updated but is still **proposed**. Accepting it needs a human.
 
 **Open questions / blockers**
-- Accept ADR 0014 (including the `EditorTransport` exception now in `ui.md`)?
+- Accept ADR 0022 (including the `EditorTransport` exception now in `ui.md`)?
 - Is "Color-blind safe" the right replacement for "Brass tints", or should the palette just be dropped?
 - Teal accent next to the Woodwinds dot on a selected row: accept or change the selection color?
 - Preview still does a lot of per-frame React work while playing. At 4× CPU throttle with 64 parts it runs about 10 frames/s (Customize 18). The same happens with fewer parts. Track it as its own perf task, which would cover the remaining `usePlayback(s => s.time)` subscribers.
@@ -117,4 +117,4 @@ Append-only. Newest entry at the bottom. Written by `/handoff`.
 - Screenshots at 390, 820 and 1440 px: no horizontal scroll at 390 (`scrollWidth` 390).
 - 64-part score (demo parts cycled), playing, headless Chrome, CDP metrics. Before → after the Waveform fix: Customize 1× was 67 % busy at about 55 frames/s, now 50 % busy at 60 frames/s; 4× went from about 11 to 18 frames/s. Preview 1×: 73 % → 50 % busy, 56 frames/s; 4× about 10 frames/s. Per-frame rAF work stayed small (p95 < 1 ms at 1×).
 
-**Addendum (same day):** ADR 0014 accepted and the "Color-blind safe" palette kept (decided by the user). STATE.md rows 4 and Customize updated for the PR. Still open: teal accent beside the Woodwinds dot on a selected row; Preview per-frame perf (now in STATE.md known breakage).
+**Addendum (same day):** ADR 0022 accepted and the "Color-blind safe" palette kept (decided by the user). STATE.md rows 4 and Customize updated for the PR. Still open: teal accent beside the Woodwinds dot on a selected row; Preview per-frame perf (now in STATE.md known breakage).

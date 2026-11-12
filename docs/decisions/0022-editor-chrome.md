@@ -1,4 +1,4 @@
-# 0014. Editor pages use a neutral "studio" surface; the stage stays dark
+# 0022. Editor pages use a neutral "studio" surface; the stage stays dark
 
 Date: 2026-11-11
 Status: accepted

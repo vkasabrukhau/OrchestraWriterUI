@@ -154,13 +154,16 @@ describe("playback shortcuts leave keys to the focused widget", () => {
     expect(usePlayback.getState().time).toBe(10);
   });
 
-  it("modifier combinations are not playback shortcuts", () => {
+  it("modifier combinations are not playback shortcuts (except Cmd/Ctrl + arrows, which step by bar)", () => {
     const { getByTestId } = render(<Harness />);
     const other = getByTestId("other");
     other.focus();
-    fireEvent.keyDown(other, { key: "ArrowRight", metaKey: true });
     fireEvent.keyDown(other, { key: "ArrowRight", altKey: true });
+    fireEvent.keyDown(other, { key: " ", code: "Space", metaKey: true });
+    fireEvent.keyDown(other, { key: "m", code: "KeyM", ctrlKey: true });
     expect(usePlayback.getState().time).toBe(10);
+    expect(usePlayback.getState().playing).toBe(false);
+    expect(usePlayback.getState().muted).toBe(false);
   });
 });
 

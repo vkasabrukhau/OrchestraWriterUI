@@ -5,7 +5,7 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { cx } from "@/lib/utils/format";
 
 /**
- * Small building blocks of the editor chrome (ADR 0014): square tool buttons,
+ * Small building blocks of the editor chrome (ADR 0022): square tool buttons,
  * docked panel headers, property sections and compact fields.
  */
 

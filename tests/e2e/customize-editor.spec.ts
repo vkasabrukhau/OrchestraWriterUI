@@ -1,6 +1,6 @@
 import { DEMO, SCORE_FILE, expect, open, stepUrl, test } from "./helpers";
 
-/** The Customize editor (ADR 0014): menu bar, keyboard shortcuts, undo/redo and the step tabs. */
+/** The Customize editor (ADR 0022): menu bar, keyboard shortcuts, undo/redo and the step tabs. */
 test("the Customize editor selects, nudges, undoes, hides and solos parts", async ({ page, account }) => {
   void account;
 

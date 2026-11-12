@@ -36,7 +36,7 @@ export function CustomizePage({ projectId }: { projectId: string }) {
 }
 
 /**
- * The Customize editor (ADR 0014): instruments left, the stage with its
+ * The Customize editor (ADR 0022): instruments left, the stage with its
  * transport in the middle, properties right, part lanes along the bottom.
  */
 function CustomizeEditor({ infoMap, display, hasRecording }: { infoMap: InfoMap; display: DisplaySettings; hasRecording: boolean }) {

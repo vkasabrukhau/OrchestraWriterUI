@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Rehearsal marks: "A" at written bar 2 is printed only on the second part,
+  "B" at bar 3 on both (the top part's wins), and bars 2–3 repeat:
+  written 1 |: 2 3 :| 4 plays 1 2 3 2 3 4, so both passes carry the mark.
+  Tempo 60, 1/4.
+-->
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Flute</part-name></score-part>
+    <score-part id="P2"><part-name>Violin I</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>
+      <sound tempo="60"/>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+    <measure number="2">
+      <barline location="left"><repeat direction="forward"/></barline>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+    <measure number="3">
+      <direction placement="above"><direction-type><rehearsal enclosure="square">B</rehearsal></direction-type></direction>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type></note>
+      <barline location="right"><repeat direction="backward"/></barline>
+    </measure>
+    <measure number="4">
+      <note><pitch><step>F</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+    <measure number="2">
+      <barline location="left"><repeat direction="forward"/></barline>
+      <direction placement="above"><direction-type><rehearsal> A </rehearsal></direction-type></direction>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+    <measure number="3">
+      <direction placement="above"><direction-type><rehearsal>X</rehearsal></direction-type></direction>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type></note>
+      <barline location="right"><repeat direction="backward"/></barline>
+    </measure>
+    <measure number="4">
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+  </part>
+</score-partwise>
