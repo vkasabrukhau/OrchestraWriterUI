@@ -70,6 +70,10 @@ interface WrittenMeasure {
   dynamics: DynamicEvent[];
   pizz: PizzEvent[];
   tempos: Array<{ offsetQ: number; bpm: number }>;
+  /** notes and rests carrying a fermata (quarters from the start of the written measure) */
+  fermatas: Array<{ onsetQ: number; durQ: number }>;
+  /** first rehearsal mark printed in the measure ("A", "12", "Coda") */
+  rehearsal?: string;
   bar: BarFlags;
 }
 
@@ -202,6 +206,10 @@ export function parseMusicXml({ bytes, filename }: ParseInput): ParseOutcome {
     // printed bar number (MusicXML number attribute, may be "0", "12a", "X1") when it differs from the playback index
     const label = bars[w].label;
     if (label !== String(k + 1)) info.label = label;
+    if (w !== k) info.writtenIndex = w;
+    // rehearsal mark: the first part that prints one wins (usually the top staff)
+    const rehearsal = written.find((part) => part[w]?.rehearsal !== undefined)?.[w]?.rehearsal;
+    if (rehearsal !== undefined) info.rehearsal = rehearsal;
     return info;
   });
 
@@ -239,6 +247,10 @@ export function parseMusicXml({ bytes, filename }: ParseInput): ParseOutcome {
     tempo: round6(firstTempo),
     timeSignature,
     warnings: dedupe(warnings),
+    timing: {
+      tempo: tempoMap.breakpoints().map((p) => ({ time: round6(p.sec), bpm: round6(p.bpm) })),
+      fermatas: fermataSpans(written, order, startQ, sec),
+    },
   };
   const meta: ScoreMeta = {
     ...readMeta(root, filename),
@@ -358,6 +370,7 @@ function readPart(part: RawPart, partName: string, warnings: string[]): ReadPart
       dynamics: [],
       pizz: [],
       tempos: [],
+      fermatas: [],
       bar: { label: el.attrs.number ?? String(out.length + 1), forward: false, backward: false, times: null, ending: endingOpen },
     };
     let cursor = 0;
@@ -401,6 +414,7 @@ function readPart(part: RawPart, partName: string, warnings: string[]): ReadPart
             if (!grace) cursor += durQ;
           }
           m.extentQ = Math.max(m.extentQ, cursor, onset + durQ);
+          if (durQ > 0 && childrenOf(c, "notations").some((n) => child(n, "fermata"))) m.fermatas.push({ onsetQ: onset, durQ });
           if (child(c, "rest") || child(c, "cue")) break;
           const pitch = readPitch(c);
           if (pitch == null) break;
@@ -563,6 +577,10 @@ function readDirection(dir: XEl, cursor: number, m: WrittenMeasure, partName: st
   let jumpWarned = false;
   for (const dt of childrenOf(dir, "direction-type")) {
     for (const d of childrenOf(dt, "dynamics")) pushDynamic(m, cursor, d);
+    for (const r of childrenOf(dt, "rehearsal")) {
+      const mark = r.text.trim();
+      if (mark && m.rehearsal === undefined) m.rehearsal = mark.slice(0, 40);
+    }
     const metronome = child(dt, "metronome");
     if (metronome && tempo == null) {
       const units = childrenOf(metronome, "beat-unit");
@@ -689,6 +707,22 @@ function emitNotes(part: WrittenMeasure[], order: number[], startQ: number[], se
       measure: p.measure,
     };
   });
+}
+
+/** Fermata spans in score seconds, playback order, merged across parts. */
+function fermataSpans(part: WrittenMeasure[][], order: number[], startQ: number[], sec: (q: number) => number): Array<{ start: number; end: number }> {
+  const seen = new Map<string, { start: number; end: number }>();
+  for (const written of part) {
+    for (let k = 0; k < order.length; k++) {
+      for (const f of written[order[k]]?.fermatas ?? []) {
+        const start = sec(startQ[k] + f.onsetQ);
+        const end = sec(startQ[k] + f.onsetQ + f.durQ);
+        const key = `${start}:${end}`;
+        if (!seen.has(key)) seen.set(key, { start, end });
+      }
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
 /* ------------------------------------------------------------------ */

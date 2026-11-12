@@ -15,7 +15,7 @@ import { Stage } from "@/components/visualizer/Stage";
 import { useWaveform } from "@/components/visualizer/useWaveform";
 import { Transport } from "@/components/music/Transport";
 import { NeedsScore } from "@/components/music/NeedsScore";
-import { barNumber } from "@/components/music/bars";
+import { barBeatText } from "@/components/music/bars";
 import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Toggle";
 import { Segmented } from "@/components/ui/Segmented";
@@ -68,9 +68,7 @@ function CustomizeEditor({ projectId, infoMap, display }: { projectId: string; i
     setGlowScale,
   } = useProject.getState();
   const playing = usePlayback((s) => s.playing);
-  const { clock, measureAt } = useProjectTiming();
-  // re-render on bar changes only, not every frame
-  const current = usePlayback((s) => measureAt(s.time));
+  const { clock, toScore } = useProjectTiming();
   const peaks = useWaveform({ peaks: storePeaks, infoMap });
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Partial<Record<Section, boolean>>>({});
@@ -222,7 +220,7 @@ function CustomizeEditor({ projectId, infoMap, display }: { projectId: string; i
             previewAll={!playing}
             showLegend
           />
-          <Transport peaks={peaks} measureLabel={`Bar ${barNumber(infoMap, current)} / ${infoMap.measures.length}`} />
+          <Transport peaks={peaks} positionLabel={(t) => barBeatText(infoMap, toScore(t))} />
           <p className="text-[12px] text-ink-3">
             {playing ? "Playing: glows follow the written dynamics." : "Paused: every visible part is lit at a middle level so you can place it. Drag a glow to move it."}
           </p>

@@ -1,6 +1,7 @@
 import { WorkflowNav } from "@/components/shell/WorkflowNav";
 import { ProjectLoader } from "@/components/shell/ProjectLoader";
 import { PlaybackSourceMount } from "@/components/music/PlaybackSourceMount";
+import { WorkflowMain } from "@/components/shell/WorkflowMain";
 
 export default async function WorkflowLayout({ children, params }: LayoutProps<"/projects/[projectId]">) {
   const { projectId } = await params;
@@ -9,7 +10,7 @@ export default async function WorkflowLayout({ children, params }: LayoutProps<"
       <WorkflowNav projectId={projectId} />
       <ProjectLoader projectId={projectId}>
         <PlaybackSourceMount />
-        <main className="mx-auto w-full max-w-[1440px] flex-1 px-5 pb-16 pt-7 md:px-8">{children}</main>
+        <WorkflowMain>{children}</WorkflowMain>
       </ProjectLoader>
     </div>
   );

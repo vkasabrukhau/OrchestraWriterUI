@@ -52,10 +52,26 @@ export interface MeasureInfo {
   number: number;
   /** printed bar number when it differs from `number` (after a repeat) */
   label?: string;
+  /**
+   * 0-based position of this bar in the written score, when it differs from
+   * `number − 1` (repeats expanded). Engraved notation is drawn in written
+   * order, so this maps a playback bar to the bar on the page.
+   */
+  writtenIndex?: number;
+  /** rehearsal mark printed at this bar ("A", "12"); every pass of a repeated bar carries it */
+  rehearsal?: string;
   /** seconds, score time */
   startTime: number;
   /** seconds */
   duration: number;
+}
+
+/** Score-clock facts the aligner needs beyond the notes (absent in info maps saved before it existed). */
+export interface ScoreTiming {
+  /** tempo from each score time on (quarter notes per minute); the first entry is at 0 */
+  tempo: Array<{ time: number; bpm: number }>;
+  /** spans of notes or rests carrying a fermata, score seconds, merged across parts */
+  fermatas: Array<{ start: number; end: number }>;
 }
 
 export interface InfoMap {
@@ -66,6 +82,7 @@ export interface InfoMap {
   tempo: number;
   timeSignature: string;
   warnings: string[];
+  timing?: ScoreTiming;
 }
 
 export const MAX_PARTS = 64;

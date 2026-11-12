@@ -11,6 +11,18 @@
   color-scheme: light;
 
   /* surfaces */
+  /* engraved notation is drawn in black, so its sheet stays light in both themes */
+  --score-paper: #fffdf8;
+  /* score playhead; the sheet is light in both themes, so one red serves both */
+  --score-playhead: #e00023;
+  /* overlays drawn on the sheet (light in both themes, so they do not follow the theme's ink) */
+  --score-ink: #1d1a16;
+  --score-hover: rgba(29, 26, 22, 0.045);
+  --score-current-edge: rgba(142, 102, 32, 0.55);
+  --score-marker: #8e6620;
+  /* a marker placed but not applied yet (dashed outline, ≥ 3:1 on paper) */
+  --marker-pending: #7a5a1c;
+  --score-range: rgba(181, 132, 44, 0.14);
   --paper: #f6f2ea;
   --paper-2: #fbf9f4;
   --paper-3: #eee8dc;
@@ -87,6 +99,7 @@
 /* Direction B — one dark material, amber accent, floating controls */
 :root[data-theme="stage"] {
   color-scheme: dark;
+  --score-paper: #ece6d8;
   --paper: #0d1014;
   --paper-2: #14181e;
   --paper-3: #1b2028;
@@ -468,6 +481,83 @@ button,
   background-clip: padding-box;
 }
 
+/* red playhead over engraved notation (EngravedScore moves it every frame) */
+.score-playhead {
+  background: var(--score-playhead);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--score-playhead) 25%, transparent);
+  will-change: transform;
+  transition: opacity 120ms;
+}
+
+/* page view: each page is a sheet of paper on the desk */
+.score-page {
+  background: var(--score-paper);
+  box-shadow:
+    0 1px 2px rgba(29, 26, 22, 0.12),
+    0 6px 18px rgba(29, 26, 22, 0.08);
+}
+
+/* bar targets over engraved notation: hover is a faint wash; the bar being played gets a thin strip above it.
+   The sheet is scaled; --strip and --k keep lines at their on-screen size. */
+.score-bar:hover {
+  background: var(--score-hover);
+}
+.score-bar-current::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: calc(-1 * var(--strip, 3px));
+  height: var(--strip, 3px);
+  border-radius: 2px;
+  background: var(--score-current-edge);
+}
+.score-bar:focus-visible {
+  outline: 2px solid var(--score-marker);
+  outline-offset: 1px;
+}
+/* where a click would start: a thin dashed line and a small label */
+.score-hover-line {
+  width: 0;
+  border-left: 1.5px dashed color-mix(in srgb, var(--score-ink) 55%, transparent);
+}
+.score-hover-label {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--score-ink);
+  color: #fffdf8;
+  font-size: 11px;
+  line-height: 16px;
+}
+/* manual sync marker pinned to a note: a brass pin and a hairline */
+.score-marker {
+  width: 0;
+  border-left: calc(1.5px * var(--k, 1)) solid color-mix(in srgb, var(--score-marker) 55%, transparent);
+}
+.score-marker::before {
+  content: "";
+  position: absolute;
+  left: calc(-5.5px * var(--k, 1));
+  top: calc(-6px * var(--k, 1));
+  border: calc(5px * var(--k, 1)) solid transparent;
+  border-top: calc(6px * var(--k, 1)) solid var(--score-marker);
+  border-bottom: 0;
+}
+/* the start point (and the note selected on Sync): a small ink flag and a faint dotted line */
+.score-cue {
+  width: 0;
+  border-left: calc(1px * var(--k, 1)) dotted color-mix(in srgb, var(--score-ink) 45%, transparent);
+}
+.score-cue::before {
+  content: "";
+  position: absolute;
+  left: calc(-5px * var(--k, 1));
+  top: calc(-7px * var(--k, 1));
+  border: calc(4.5px * var(--k, 1)) solid transparent;
+  border-top: calc(6px * var(--k, 1)) solid var(--score-ink);
+  border-bottom: 0;
+}
+
 /* reduced motion: fades become instant switches */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -534,4 +624,47 @@ button,
    pointer events in some browsers, so let the wrapper receive them. */
 .tooltip-wrap > :disabled {
   pointer-events: none;
+}
+
+/* Sync markers (ADR 0018): applied = filled pin; pending = dashed outline; a pending deletion = crossed out */
+.score-marker-button {
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.score-marker-button::after {
+  content: "";
+  position: absolute;
+  left: calc(-8px * var(--k, 1));
+  top: calc(-10px * var(--k, 1));
+  width: calc(16px * var(--k, 1));
+  height: calc(14px * var(--k, 1));
+}
+.score-marker-button:focus-visible {
+  outline: calc(2px * var(--k, 1)) solid var(--brass);
+  outline-offset: calc(3px * var(--k, 1));
+}
+.score-marker-pending {
+  border-left-style: dashed;
+  border-left-color: var(--marker-pending);
+}
+.score-marker-pending::before {
+  border-top-color: transparent;
+  filter: drop-shadow(0 0 0 var(--marker-pending));
+  outline: calc(1.5px * var(--k, 1)) dashed var(--marker-pending);
+  outline-offset: calc(-1px * var(--k, 1));
+}
+.score-marker-deleted {
+  opacity: 0.55;
+  border-left-style: dotted;
+}
+.score-marker-deleted::before {
+  border-top-color: var(--ink-3);
+}
+.pending-hatch {
+  background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--marker-pending) 70%, transparent) 0 2px, transparent 2px 5px);
+}
+
+:root[data-theme="stage"] {
+  --marker-pending: #ecc97a;
 }
