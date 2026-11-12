@@ -9,7 +9,9 @@ import type { ActivityItem, ProjectSummary } from "@/shared/domain";
 import type { InfoMap } from "@/shared/info-map";
 import type { AlignResult, AudioUploadResult, ExportResult, Job, JobKind, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
 import type { DisplaySettings } from "@/shared/project-file";
-import { UNCERTAIN_THRESHOLD, type SyncState } from "@/shared/sync";
+import { appliedOf, parseSyncState, resolveRange, type SyncState } from "@/shared/sync";
+import { normalizeMarkers } from "@/lib/score/stamps";
+import { writeRun } from "./sync-run";
 import { DEFAULT_PREFERENCES, type ExportDto, type ProfileDto, type ProgramDto, type ProjectDto, type ProjectUrls, type UsageDto } from "@/shared/api";
 import { ACTIVITY, DEMO_DIRECTOR, PROGRAMS, PROJECTS } from "@/lib/mock/library";
 import { buildMockInfoMap } from "@/lib/mock/info-map";
@@ -330,6 +332,13 @@ export const mockApi: ApiClient = {
     return { score: url(p.scoreKey), audio: url(p.audioKey), infoMap: url(p.infoMapKey), expiresInSeconds: 900 };
   },
 
+  /** The mock keeps no score files; the score panel falls back to the schematic view. */
+  async fetchScoreXml(id) {
+    await wait(LATENCY_MS);
+    mustProject(id);
+    return null;
+  },
+
   async fetchInfoMap(id) {
     await wait(LATENCY_MS);
     const p = mustProject(id);
@@ -339,7 +348,9 @@ export const mockApi: ApiClient = {
 
   async saveSync(id, sync: SyncState) {
     await wait(LATENCY_MS);
-    return clone(touch(mustProject(id), { sync: clone(sync), averageConfidence: Math.round(sync.averageConfidence) }));
+    // the same strict validator as the server (unknown keys dropped, bad values rejected)
+    const checked = parseSyncState(clone(sync), "strict").sync;
+    return clone(touch(mustProject(id), { sync: checked, averageConfidence: Math.round(checked.averageConfidence) }));
   },
 
   async saveDisplay(id, display: DisplaySettings) {
@@ -348,7 +359,12 @@ export const mockApi: ApiClient = {
   },
 
   // processing
-  async startAlignment(projectId) {
+  async loadRecordingPeaks() {
+    // the mock has no decoded recording: the waveform uses the stored overview peaks
+    return null;
+  },
+
+  async startAlignment(projectId, input = {}) {
     return simulated<AlignResult>(
       "align",
       [
@@ -358,16 +374,21 @@ export const mockApi: ApiClient = {
         { until: 0.95, message: "Scoring confidence per measure" },
         { until: 1, message: "Finishing" },
       ],
-      5200,
+      input.range ? 1600 : 5200,
       () => {
         const p = mustProject(projectId);
         const infoMap = infoMapFor(projectId);
-        const fresh = buildMockAlignment(infoMap, specForProject(projectId).seed + (p.sync ? 1 : 0));
-        const sync: SyncState = { ...fresh, manual: p.sync?.manual ?? [] };
+        if (input.style === "rigid") throw new Error("That sync method is not available yet");
+        const prev = p.sync ? normalizeMarkers(p.sync, infoMap) : null;
+        const range = input.range && prev && prev.auto.length === infoMap.measures.length ? input.range : null;
+        const manual = prev?.manual ?? [];
+        const nextApplied = resolveRange(manual, prev ? appliedOf(prev) : [], range);
+        const fresh = buildMockAlignment(infoMap, specForProject(projectId).seed + (p.sync ? 1 : 0) + (range ? range.from * 7 + range.to : 0));
+        const runAuto = range ? fresh.auto.filter((a) => a.n >= range.from && a.n <= range.to) : fresh.auto;
+        const { sync, summary } = writeRun(prev, { auto: runAuto, method: fresh.method, fellBack: false, diagnostics: fresh.diagnostics, averageConfidence: fresh.averageConfidence }, range, manual, nextApplied);
         touch(p, { sync, averageConfidence: sync.averageConfidence });
-        const uncertainMeasures = sync.auto.filter((m) => m.confidence < UNCERTAIN_THRESHOLD).length;
-        logActivity("sync", projectId, `Auto-alignment finished · ${sync.averageConfidence}% average confidence`);
-        return { measures: sync.auto.length, averageConfidence: sync.averageConfidence, uncertainMeasures, method: sync.method };
+        logActivity("sync", projectId, range ? `Bars ${range.from}–${range.to} re-synced · ${sync.averageConfidence}% average confidence` : `Auto-alignment finished · ${sync.averageConfidence}% average confidence`);
+        return summary;
       },
     );
   },

@@ -16,17 +16,18 @@ import { cx } from "@/lib/utils/format";
 import { Stage } from "@/components/visualizer/Stage";
 import { useWaveform } from "@/components/visualizer/useWaveform";
 import { Transport } from "@/components/music/Transport";
-import { ScoreStrip } from "@/components/music/ScoreStrip";
+import { ScoreView } from "@/components/music/ScoreView";
 import { Dyn } from "@/components/music/Dyn";
 import { DynamicLegend } from "@/components/music/DynamicLegend";
 import { NeedsScore } from "@/components/music/NeedsScore";
-import { barNumber } from "@/components/music/bars";
+import { barBeatText, barNumber } from "@/components/music/bars";
 import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Toggle";
 import { Chip } from "@/components/ui/Chip";
 import { Panel } from "@/components/ui/Collapsible";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { PageHeader, Dot } from "@/components/shell/PageHeader";
+import { PendingMarkersNotice } from "@/components/sync/PendingMarkersNotice";
 
 type PartFrame = { id: string; playing: boolean; dynamic: Dynamic; level: number };
 
@@ -44,7 +45,7 @@ function PreviewView({ projectId, summary, infoMap, display }: { projectId: stri
   const setStage = useProject((s) => s.setStage);
   const setShowLabels = useProject((s) => s.setShowLabels);
   const setReducedMotion = useProject((s) => s.setReducedMotion);
-  const { clock, measureAt, seekMeasure, hasRecording, aligned } = useProjectTiming();
+  const { clock, measureAt, seekMeasure, toScore, hasRecording, aligned } = useProjectTiming();
   const peaks = useWaveform({ peaks: storePeaks, infoMap });
 
   const [measure, setMeasure] = useState(() => measureAt(usePlayback.getState().time));
@@ -145,6 +146,7 @@ function PreviewView({ projectId, summary, infoMap, display }: { projectId: stri
           </>
         }
       />
+      <PendingMarkersNotice projectId={projectId} />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
@@ -178,10 +180,18 @@ function PreviewView({ projectId, summary, infoMap, display }: { projectId: stri
             </div>
           )}
 
-          <Transport peaks={peaks} measureLabel={`Bar ${barNumber(infoMap, measure)} / ${total}`} />
+          <Transport peaks={peaks} positionLabel={(t) => barBeatText(infoMap, toScore(t))} />
 
           <Panel title="Score" icon={<Music2 size={14} />} open={panels.score} onToggle={() => toggle("score")}>
-            <ScoreStrip infoMap={infoMap} currentMeasure={measure} onSeekMeasure={seekMeasure} visibleParts={visible} />
+            <ScoreView
+              key={projectId}
+              projectId={projectId}
+              infoMap={infoMap}
+              currentMeasure={measure}
+              onSeekMeasure={seekMeasure}
+              reducedMotion={display.reducedMotion}
+              visibleParts={visible}
+            />
           </Panel>
 
           <Panel title="Orchestra viewer" icon={<Users size={14} />} open={panels.orchestra} onToggle={() => toggle("orchestra")}>

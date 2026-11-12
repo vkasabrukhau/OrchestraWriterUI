@@ -12,6 +12,7 @@ import { ProjectFileCard } from "./ProjectFileCard";
 import { VideoCard } from "./VideoCard";
 import { ExportHistory, type HistoryState } from "./ExportHistory";
 import { slugify } from "./shared";
+import { PendingMarkersNotice } from "@/components/sync/PendingMarkersNotice";
 
 export function ExportPage({ projectId }: { projectId: string }) {
   const summary = useProject((s) => s.summary);
@@ -64,6 +65,7 @@ export function ExportPage({ projectId }: { projectId: string }) {
           </>
         }
       />
+      <PendingMarkersNotice projectId={projectId} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ProjectFileCard projectId={projectId} defaultName={slug} onExported={reloadHistory} />

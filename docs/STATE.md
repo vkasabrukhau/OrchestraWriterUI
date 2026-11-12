@@ -3,14 +3,14 @@
 Edited only on `main` (or in the PR that merges). Everything Claude needs to
 know about *where we are* lives here; *what we're building* lives in `docs/spec/`.
 
-Last updated: 2026-10-26 (branch `feat/backend-integration`, in review)
+Last updated: 2026-11-12 (branch `feat/sync-revamp`, in review)
 
 ## Status by requirement
 
 | # | Requirement | Status | Branch / owner | Notes |
 |---|---|---|---|---|
 | 1 | Upload score (MusicXML) + optional MP3 | in review | feat/backend-integration | Presigned S3 uploads; server parse-score job with the shared parser (`src/shared/score`); `.mxl` supported |
-| 2 | Sync score and audio (auto + manual, confidence) | in review | feat/backend-integration | Chroma DTW in a Web Worker (ADR 0009); manual markers merged and persisted; 56/56 bars within 150 ms on synthesized audio, 55/56 on the committed MP3 (ADR 0009) |
+| 2 | Sync score and audio (auto + manual, confidence) | in review | feat/sync-revamp | Integrated tempo from original search, ported to the Web Worker (ADR 0014), chroma DTW fallback (ADR 0009); note-level markers, pending until a recompute (ADR 0018), used as fixed anchors inside the aligners (ADR 0021); range recomputes (ADR 0019); mean error 20–22 ms on synthesized audio; confidence is a heuristic, uncalibrated |
 | 3 | Information map | in review | feat/backend-integration | Parser + 20 quirk fixtures; stored as `info-map-<job>.json` in S3; types in `src/shared/info-map.ts` |
 | 4 | Customize display (one style, colors, positions, 64 parts) | in review | feat/backend-integration | Settings autosave to `projects.display` |
 | 5 | Generate the visual | in review | feat/backend-integration | Canvas 2D renderer; labels drawn on canvas for export |
@@ -30,9 +30,9 @@ Status values: not started · in progress · in review · done · blocked
 | Sign in / Sign up | wired | email + password; Google when configured |
 | Library, Programs, Profile, Settings | wired | real data; decluttered |
 | Import | wired | real uploads, parse job, open `.ovproj` |
-| Sync | wired | auto-aligns on first visit; nudge default, ms advanced |
+| Sync | wired | workspace with resizable panes (ADR 0017): engraved score with confidence per bar (ADR 0015), joint playback with piano roll and waveform (ADR 0020), markers and measures sidebar; nudge default, ms advanced |
 | Customize | wired | Radix slider for glow size; later-phase rows removed |
-| Preview | wired | real audio, collapsible panels |
+| Preview | wired | real audio, collapsible panels; engraved score panel (OSMD, ADR 0015), schematic fallback |
 | Export | wired | project file + MP4, history |
 
 ## Open questions (need a human decision)
@@ -52,7 +52,8 @@ Status values: not started · in progress · in review · done · blocked
 - MP4 export needs WebCodecs: Chrome/Edge (AAC audio), Safari 26+ (AAC);
   Firefox has no AAC encoder, so exports there are video-only with a warning.
   Safari and Firefox have not been exercised yet.
-- Alignment confidence thresholds were tuned on synthetic audio only.
+- Alignment confidence thresholds were tuned on synthetic audio only; the integrated
+  aligner has not yet been compared with its Python reference on a real recording.
 - In "parts" label mode with 64 parts, 32 labels per side overlap (about
   17 px apart); a compact "name + dynamic" label for crowded columns is the
   follow-up.
@@ -63,5 +64,5 @@ Status values: not started · in progress · in review · done · blocked
 
 Account-free mode and public share pages (ADR 0013) · Other score/audio formats (incl. extracting audio from MP4) · custom mappings
 and gradients · pitch, articulation, ramps, look-ahead ring · browser
-auto-restore · engraved notation (OSMD) · audio-based instrument
+auto-restore · audio-based instrument
 identification (see `docs/research/sync-and-instrument-identification.md`).

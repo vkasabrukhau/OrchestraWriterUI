@@ -32,39 +32,43 @@ test("a recording goes from upload through sync, display, preview and both expor
     await expect(page).toHaveURL(stepUrl("sync"));
   });
 
-  const markers = page.getByRole("region", { name: "Manual markers" });
+  const sidebar = page.getByRole("complementary", { name: "Sync sidebar" });
+  const markers = sidebar.getByRole("list", { name: "Markers" });
   let markerText = "";
 
   await test.step("auto-alignment finishes with an average confidence", async () => {
     await expect(page.getByText(/^\d+% average confidence$/)).toBeVisible({ timeout: 60_000 });
     await expect(page.getByText(`${DEMO.measures} bars`, { exact: true })).toBeVisible();
-    await expect(markers.getByText(/^None yet/)).toBeVisible();
+    await expect(sidebar.getByText(/^No markers yet/)).toBeVisible();
   });
 
-  await test.step("nudging bar 4 by +100 ms adds a manual marker that survives a reload", async () => {
+  await test.step("a marker on bar 4, nudged +100 ms, survives a reload", async () => {
     const strip = page.getByRole("slider", { name: "Confidence by bar" });
     await strip.focus();
     await strip.press("Home");
     for (let i = 0; i < 3; i++) await strip.press("ArrowRight");
-    await expect(page.getByRole("heading", { name: "Bar 4", exact: true })).toBeVisible();
+    await expect(sidebar).toContainText("Selected: Bar 4");
+    await sidebar.getByRole("button", { name: "Add marker" }).click();
 
     const saved = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().endsWith(`/api/projects/${projectId}/sync`) && r.ok());
-    await page.getByRole("button", { name: "+100 ms", exact: true }).click();
+    await sidebar.getByRole("button", { name: "+100 ms", exact: true }).click();
     const item = markers.getByRole("listitem");
     await expect(item).toHaveCount(1);
-    await expect(item).toContainText(/^Bar 4 · \d+:\d\d\.\d$/);
-    markerText = (await item.getByRole("button").first().textContent())!.trim();
+    await expect(item).toContainText(/^Bar 4 · \d+:\d\d\.\d/);
+    await expect(item).toContainText("pending");
+    markerText = (await item.getByRole("button", { name: /^Bar 4/ }).textContent())!.trim();
     await saved;
 
     await reload(page);
     await expect(page.getByText("1 manual marker", { exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(markers.getByRole("listitem")).toHaveText([markerText]);
+    await expect(markers.getByRole("listitem").getByRole("button", { name: /^Bar 4/ })).toHaveText(markerText);
   });
 
-  await test.step("re-running auto-alignment keeps the manual marker", async () => {
-    await page.getByRole("button", { name: "Re-run auto-alignment" }).click();
-    await expect(page.getByText(/Manual markers were kept\.$/)).toBeVisible({ timeout: 60_000 });
-    await expect(markers.getByRole("listitem")).toHaveText([markerText]);
+  await test.step("a whole-piece sync applies the marker and keeps it", async () => {
+    await sidebar.getByRole("button", { name: "Run sync" }).click();
+    await expect(sidebar.getByTestId("sync-result")).toContainText(/^Whole piece recomputed · 1 marker applied/, { timeout: 60_000 });
+    await expect(markers.getByRole("listitem").getByRole("button", { name: /^Bar 4/ })).toHaveText(markerText);
+    await expect(markers.getByRole("listitem")).not.toContainText("pending");
     await expect(page.getByText("1 manual marker", { exact: true })).toBeVisible();
   });
 

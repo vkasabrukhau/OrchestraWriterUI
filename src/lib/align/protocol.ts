@@ -1,6 +1,6 @@
 import type { InfoMap } from "@/shared/info-map";
 import type { SyncState } from "@/shared/sync";
-import type { ChromaDtwOptions } from "./index";
+import type { AlignOptions } from "./select";
 
 /** Messages between worker-client.ts (page) and worker.ts (Web Worker). */
 export interface AlignRequest {
@@ -10,7 +10,7 @@ export interface AlignRequest {
   samples: Float32Array;
   sampleRate: number;
   durationSec: number;
-  options?: ChromaDtwOptions;
+  options?: AlignOptions;
 }
 
 export type AlignResponse =
