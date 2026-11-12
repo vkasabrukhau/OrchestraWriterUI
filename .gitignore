@@ -60,3 +60,4 @@ build/
 # Playwright output
 /test-results/
 /playwright-report/
+.gstack/

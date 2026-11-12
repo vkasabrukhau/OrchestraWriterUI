@@ -1,2 +1,6 @@
 - [Backend integration scope conflict](project_backend_integration_scope.md): accounts, cloud storage and autosave built while CLAUDE.md calls them later phase; check for a recorded decision
+- [Plan review pitfalls](project_plan_review_pitfalls.md): jsdom fails only on local Node 22.14 (CI is 24), e2e pins Sync names, no gzip size in Next 16 build
 - [Recurring review findings](project_recurring_review_findings.md): upload caps, zip bombs, URL expiry, autosave race, MP4 memory, empty e2e, public /api/status
+- [Sync data conventions](project_sync_data_conventions.md): additive fields keep v1, two position sources, adopt sets conf 100, Transport per-frame, AudioBuffer memory
+- [Sync revamp traps](project_sync_revamp_traps.md): marker bounds vs merge floor, chroma DTW pinned ends, range splice leaks, OSMD stamp vs seconds
+- [Owner intent priority](project_owner_intent_priority.md): criterion G (owner words) beats other criteria; watch fixes that trade owner asks away
