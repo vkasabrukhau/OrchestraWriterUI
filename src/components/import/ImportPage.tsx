@@ -122,7 +122,7 @@ export function ImportPage({ projectId }: { projectId: string }) {
     onSucceeded: onAudioDone,
   });
 
-  // Experimental: no score, but a recording → transcribe one (local MuScriptor service).
+  // Experimental: no score, but a recording → transcribe one (MuScriptor service: local, or the AWS GPU server).
   const transcribe = useProjectJob<TranscribeScoreResult>(`${projectId}:transcribe`, { onSucceeded: onScoreDone });
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   // the running transcribe job rewrites the bars of a transcribed score (no model run)
@@ -337,7 +337,7 @@ function ScoreCard({
           <p className="mt-2 text-xs text-ink-3">
             {transcribe.rebarring
               ? "Rewrites the score from the saved transcription; the model does not run again."
-              : "Runs on this computer and can take several minutes. You can leave this page."}
+              : "Can take several minutes. You can leave this page."}
           </p>
         </ProcessingBox>
       )}

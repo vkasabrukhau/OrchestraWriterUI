@@ -14,6 +14,11 @@ Everything is in `us-east-1`. Created by `scripts/deploy-init.sh` unless noted.
 | IAM role | `orchestra-writer-apprunner-task` | the running server: `rds-db:connect`, bucket read/write, read SSM secrets |
 | SSM parameters | `/orchestra-writer/BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | injected into the service as env vars |
 | GitHub repo variable | `AWS_DEPLOY_ROLE_ARN` | read by `.github/workflows/deploy.yml`; must be set on **this** repo (see below) |
+| EC2 instance | `orchestra-writer-transcriber` (`scripts/ml-init.sh`) | `g4dn.xlarge` GPU running the transcription service; started by the API, stops itself when idle |
+| Security group | `orchestra-writer-transcriber` (`scripts/ml-init.sh`) | HTTPS 8333 from anywhere (token + pinned TLS) |
+| IAM role + instance profile | `orchestra-writer-transcriber` (`scripts/ml-init.sh`) | the instance: read its code from S3 and its secrets from SSM; SSM agent |
+| SSM parameters | `/orchestra-writer/TRANSCRIBER_TOKEN`, `TRANSCRIBER_TLS_KEY`, `TRANSCRIBER_TLS_CERT`, `HF_TOKEN` (`scripts/ml-init.sh`) | API ↔ service token and certificate; Hugging Face token for the gated weights |
+| S3 object | `orchestra-writer-s3/system/transcriber/ml.tar.gz` | the service code; uploaded by every deploy |
 
 ## This repo and AWS
 
@@ -63,6 +68,22 @@ MuScriptor weights are CC BY-NC: non-commercial use only. To retire the old
 resources instead: delete the six functions, the state machine, the
 `orchestra-writer-worker` ECR repository and role, and unset
 `STATE_MACHINE_ARN` on the App Runner service.
+
+## Transcription service (GPU instance): live
+
+The experimental "Transcribe" option on Import (`ml/`, MuScriptor) runs on one
+`g4dn.xlarge` that the API starts on demand and that stops itself after 15 idle
+minutes (ADR 0014, details in `ml/README.md` "On AWS"). `scripts/ml-init.sh`
+created it and extended two roles: `orchestra-writer-apprunner-task` may start
+that instance and describe instances, and `orchestra-writer-github-deploy` may
+upload `system/transcriber/*` to the bucket. App Runner gets
+`TRANSCRIBER_INSTANCE_ID` plus the `TRANSCRIBER_TOKEN` and `TRANSCRIBER_TLS_CERT`
+secrets; `scripts/deploy-init.sh` keeps them when it rewrites the service.
+
+Cost: ~$0.53/hour while running, ~$6/month for its disk while stopped. To retire
+it: terminate the instance, delete its security group, role and instance
+profile, the four SSM parameters and the S3 object, and remove the three
+App Runner settings (re-run `scripts/deploy-init.sh` after terminating).
 
 ## Policy for a collaborator running locally
 

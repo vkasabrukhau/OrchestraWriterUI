@@ -20,6 +20,7 @@ paths:
 - Files never flow through the server: presigned PUT/GET only, except the
   parse-score job reading the score and writing `info-map.json`, and the
   experimental transcribe job (`services/transcribe-score.ts`) reading the
-  recording to send it to the local MuScriptor service and writing the score.
+  recording to send it to the MuScriptor service (local, or the AWS GPU
+  instance; `services/transcriber.ts`) and writing the score.
 - Local stack: `docker compose up -d`; tests in `tests/api` run against it
   with `npm run test:api`.

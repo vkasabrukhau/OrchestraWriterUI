@@ -189,6 +189,18 @@ fi
 if [ "$GOOGLE_ENABLED" = yes ]; then
   SECRETS_JSON="$SECRETS_JSON, \"GOOGLE_CLIENT_ID\": \"$(param_arn GOOGLE_CLIENT_ID)\", \"GOOGLE_CLIENT_SECRET\": \"$(param_arn GOOGLE_CLIENT_SECRET)\""
 fi
+# The transcription GPU instance, if scripts/ml-init.sh created it: keep pointing the
+# service at it, since this script rewrites every environment variable.
+TRANSCRIBER_IID=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=$APP_NAME-transcriber" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+  --query 'Reservations[].Instances[].InstanceId | [0]' --output text 2>/dev/null || echo None)
+TRANSCRIBER_ENV=""
+if [ "$TRANSCRIBER_IID" != None ] && aws ssm get-parameter --name "/$APP_NAME/TRANSCRIBER_TOKEN" >/dev/null 2>&1; then
+  SECRETS_JSON="$SECRETS_JSON, \"TRANSCRIBER_TOKEN\": \"$(param_arn TRANSCRIBER_TOKEN)\", \"TRANSCRIBER_TLS_CERT\": \"$(param_arn TRANSCRIBER_TLS_CERT)\""
+  TRANSCRIBER_ENV=",
+        \"TRANSCRIBER_INSTANCE_ID\": \"$TRANSCRIBER_IID\""
+  echo "transcriber: $TRANSCRIBER_IID"
+fi
 
 # ------------------------------------------------------------------ Database network
 log "Aurora network check"
@@ -290,7 +302,7 @@ cat <<JSON
         "DB_NAME": "$DB_NAME",
         "DB_USER": "$DB_USER",
         "S3_AUDIO_BUCKET": "$S3_AUDIO_BUCKET",
-        "BETTER_AUTH_URL": "$1"$PIPELINE_ENV
+        "BETTER_AUTH_URL": "$1"$PIPELINE_ENV$TRANSCRIBER_ENV
       },
       "RuntimeEnvironmentSecrets": { $SECRETS_JSON }
     }

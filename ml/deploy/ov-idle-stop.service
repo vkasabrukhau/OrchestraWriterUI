@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop the GPU instance when the transcription service is idle
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ov-transcriber/bin/idle-stop.sh

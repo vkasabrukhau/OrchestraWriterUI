@@ -98,13 +98,22 @@ export const env = {
     .map((o) => o.trim())
     .filter(Boolean),
 
-  // Local audio-to-score service (ml/server.py, MuScriptor). Locally it defaults
-  // to http://127.0.0.1:8333; unset in production unless TRANSCRIBER_URL is set.
+  // The audio-to-score service (ml/server.py, MuScriptor), reached one of two ways
+  // (services/transcriber.ts):
+  //   - TRANSCRIBER_INSTANCE_ID (AWS, scripts/ml-init.sh): a GPU instance that stops
+  //     itself when idle. The API starts it and calls it over HTTPS pinned to
+  //     TRANSCRIBER_TLS_CERT, with the bearer TRANSCRIBER_TOKEN. Wins when set.
+  //   - TRANSCRIBER_URL: a service that is already running, e.g. `npm run ml:serve`.
+  //     Locally it defaults to http://127.0.0.1:8333; unset in production.
   transcriber: {
     url: localOptional("TRANSCRIBER_URL", "http://127.0.0.1:8333"),
     // Only an explicit TRANSCRIBER_URL replaces the placeholder in the
     // /api/transcriptions pipeline's model slot (pipeline/model.ts).
     explicit: Boolean(process.env.TRANSCRIBER_URL),
+    instanceId: process.env.TRANSCRIBER_INSTANCE_ID || undefined,
+    port: Number(optional("TRANSCRIBER_PORT", "8333")),
+    token: process.env.TRANSCRIBER_TOKEN || undefined,
+    tlsCert: process.env.TRANSCRIBER_TLS_CERT || undefined,
   },
 
   // Transcription pipeline. "stepfunctions" in production (STATE_MACHINE_ARN set),

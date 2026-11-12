@@ -24,6 +24,7 @@
     "aws:env": "scripts/aws-env.sh"
   },
   "dependencies": {
+    "@aws-sdk/client-ec2": "^3.1156.0",
     "@aws-sdk/client-s3": "^3.1156.0",
     "@aws-sdk/client-sfn": "^3.1156.0",
     "@aws-sdk/rds-signer": "^3.1156.0",

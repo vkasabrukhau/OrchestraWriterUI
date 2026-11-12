@@ -54,6 +54,15 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Ship the transcription service code
+        # The GPU instance (scripts/ml-init.sh) installs this on its next start;
+        # it stops itself when idle, so that is the next transcription after it does.
+        env:
+          BUCKET: orchestra-writer-s3
+        run: |
+          ml/deploy/package.sh "$RUNNER_TEMP/ml.tar.gz"
+          aws s3 cp --only-show-errors "$RUNNER_TEMP/ml.tar.gz" "s3://$BUCKET/system/transcriber/ml.tar.gz"
+
       - name: Log in to ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2

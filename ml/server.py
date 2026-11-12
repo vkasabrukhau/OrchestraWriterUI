@@ -22,11 +22,14 @@ at a time.
     cd ml && uv run uvicorn server:app --port 8333
 
 Environment: MUSCRIPTOR_MODEL (small | medium | large, default medium),
-MUSCRIPTOR_DEVICE (default: MPS/CUDA when present, else CPU).
+MUSCRIPTOR_DEVICE (default: MPS/CUDA when present, else CPU),
+TRANSCRIBER_TOKEN (when set, required as a bearer token on every call but
+GET /health; set on the AWS GPU instance, see ml/deploy/).
 """
 
 from __future__ import annotations
 
+import hmac
 import io
 import os
 import sys
@@ -38,6 +41,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 MODEL_NAME = os.environ.get("MUSCRIPTOR_MODEL", "medium")
 DEVICE = os.environ.get("MUSCRIPTOR_DEVICE") or None
@@ -62,6 +66,29 @@ app = FastAPI(title="Orchestra transcriber")
 _lock = threading.Lock()
 _model = None
 _load_error: str | None = None
+
+# On AWS (ml/deploy/) the service is reachable from the internet, so every call
+# but GET /health must carry `Authorization: Bearer <TRANSCRIBER_TOKEN>`.
+# Locally the variable is unset and nothing is checked.
+TOKEN = os.environ.get("TRANSCRIBER_TOKEN") or None
+# When the service was last used, for ml/deploy/idle-stop.sh. Only calls from
+# the app count (authenticated, or any call when there is no token), so the
+# idle check's own GET /health does not keep the GPU instance running.
+_last_used = time.time()
+
+
+@app.middleware("http")
+async def _auth_and_activity(request: Request, call_next):
+    global _last_used
+    # Bytes: compare_digest raises on non-ASCII str, and a header can hold any.
+    authorized = TOKEN is None or hmac.compare_digest(
+        request.headers.get("authorization", "").encode(), f"Bearer {TOKEN}".encode()
+    )
+    if not authorized and request.url.path != "/health":
+        return JSONResponse({"detail": "Missing or wrong transcriber token"}, status_code=401)
+    if authorized:
+        _last_used = time.time()
+    return await call_next(request)
 
 
 def _get_model():
@@ -97,7 +124,15 @@ async def _audio_file(request: Request, filename: str) -> Path:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "model": MODEL_NAME, "loaded": _model is not None, "error": _load_error}
+    return {
+        "ok": True,
+        "model": MODEL_NAME,
+        "loaded": _model is not None,
+        "error": _load_error,
+        # for ml/deploy/idle-stop.sh: stop the GPU instance only when nothing runs
+        "running": sum(1 for job in _jobs.values() if job["status"] == "running"),
+        "idleSeconds": int(time.time() - _last_used),
+    }
 
 
 @app.post("/notes")

@@ -1,6 +1,6 @@
 // The transcribe job (EXPERIMENTAL): turn a project's recording into a score
-// with the local MuScriptor service (ml/server.py), then import that score
-// exactly like an uploaded one.
+// with the MuScriptor service (ml/server.py: locally, or the AWS GPU instance,
+// see services/transcriber.ts), then import that score exactly like an uploaded one.
 //
 //   recording from S3 -> POST {transcriber}/score -> poll until done
 //   -> MusicXML to the project's score folder -> registerScore (parse-score job)
@@ -21,7 +21,6 @@
 import type { JobDto } from "@/shared/api";
 import type { TranscribeEnsemble, TranscribeScoreResult, TranscriptionBars, TranscriptionInfo } from "@/shared/jobs";
 import type { SyncState } from "@/shared/sync";
-import { env } from "../config/env";
 import { query } from "../db/client";
 import { ConflictError, NotFoundError, ValidationError } from "../errors";
 import { deleteObject, newProjectObjectKey } from "../storage/keys";
@@ -30,6 +29,7 @@ import { getObjectBytes, putObjectBytes } from "../storage/objects";
 import { logActivity } from "./activity";
 import { createJob, findActiveJob, finishJob, getJob, jobToDto, updateJobProgress } from "./jobs";
 import { registerScore, saveSync } from "./projects";
+import { connectTranscriber, transcriberConfigured, type Transcriber, type TranscriberCall } from "./transcriber";
 
 const POLL_MS = 2000;
 /** Give up on a transcription that has not finished after this long. */
@@ -97,7 +97,9 @@ export async function startTranscribeScore(
   if (options.resume) throw new NotFoundError("Transcription");
 
   if (!row.s3_key) throw new ValidationError("Upload a recording before transcribing it");
-  if (!env.transcriber.url) throw new ValidationError("The transcription service is not configured (TRANSCRIBER_URL)");
+  if (!transcriberConfigured()) {
+    throw new ValidationError("The transcription service is not configured (TRANSCRIBER_URL or TRANSCRIBER_INSTANCE_ID)");
+  }
   const job = await createJob(userId, { projectId, kind: "transcribe", message: "Starting transcription" });
   void runTranscribeScore({ userId, projectId, jobId: job.id, audioKey: row.s3_key, audioName: row.name ?? "recording.mp3", ensemble });
   return jobToDto(job);
@@ -115,7 +117,9 @@ export async function startRebarTranscription(userId: number, projectId: number,
   );
   if (!row) throw new NotFoundError("Project");
   if (!row.transcription) throw new ValidationError("This score was not transcribed from the recording");
-  if (!env.transcriber.url) throw new ValidationError("The transcription service is not configured (TRANSCRIBER_URL)");
+  if (!transcriberConfigured()) {
+    throw new ValidationError("The transcription service is not configured (TRANSCRIBER_URL or TRANSCRIBER_INSTANCE_ID)");
+  }
   if (await findActiveJob(userId, projectId, "transcribe")) {
     throw new ConflictError("A transcription is already running on this project");
   }
@@ -133,13 +137,14 @@ async function runTranscribeScore(input: {
   ensemble: TranscribeEnsemble;
 }) {
   const { userId, projectId, jobId } = input;
-  const base = serviceUrl();
   try {
+    // On AWS this may start the GPU server first (about 2 minutes).
+    const service = await connectTranscriber((message) => updateJobProgress(jobId, 0.02, message));
     await updateJobProgress(jobId, 0.02, "Reading the recording");
     const audio = await getObjectBytes(input.audioKey, { maxBytes: MAX_UPLOAD_BYTES.audio });
     const title = input.audioName.replace(/\.[a-z0-9]+$/i, "") || "Recording";
 
-    const started = await callService(`${base}/score?${new URLSearchParams({ filename: input.audioName, title, ensemble: input.ensemble })}`, {
+    const started = await callService(service, `/score?${new URLSearchParams({ filename: input.audioName, title, ensemble: input.ensemble })}`, {
       method: "POST",
       headers: { "content-type": "application/octet-stream" },
       body: Buffer.from(audio),
@@ -150,7 +155,7 @@ async function runTranscribeScore(input: {
     let job: ServiceJob;
     for (;;) {
       await new Promise((r) => setTimeout(r, POLL_MS));
-      job = (await (await callService(`${base}/score/${encodeURIComponent(id)}`)).json()) as ServiceJob;
+      job = (await (await callService(service, `/score/${encodeURIComponent(id)}`)).json()) as ServiceJob;
       if (job.status !== "running") break;
       if (Date.now() > deadline) throw new Error("The transcription took too long");
       // The service reports 0–1; keep the last few percent for importing the score.
@@ -182,9 +187,10 @@ async function runRebar(input: { userId: number; projectId: number; jobId: numbe
   const { userId, projectId, jobId, stored } = input;
   const t = Date.now();
   try {
+    const service = await connectTranscriber((message) => updateJobProgress(jobId, 0.1, message));
     await updateJobProgress(jobId, 0.1, "Rewriting the bars");
     const transcription = JSON.parse(Buffer.from(await getObjectBytes(stored.key, { maxBytes: TRANSCRIPTION_MAX_BYTES })).toString("utf8")) as unknown;
-    const res = await callService(`${serviceUrl()}/rebar`, {
+    const res = await callService(service, "/rebar", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ transcription, bars: input.bars }),
@@ -305,18 +311,15 @@ function describeBars(rendered: Rendered): string {
   return parts.join(", ");
 }
 
-function serviceUrl(): string {
-  return env.transcriber.url!.replace(/\/$/, "");
-}
-
-/** fetch the service; a refused connection says how to start it, an error answer carries its detail. */
-async function callService(url: string, init?: RequestInit): Promise<Response> {
+/** Call the service; a failed connection says where it was expected, an error answer carries its detail. */
+async function callService(service: Transcriber, path: string, init?: TranscriberCall): Promise<Response> {
   let res: Response;
   try {
-    res = await fetch(url, init);
+    res = await service.call(path, init);
   } catch (err) {
-    if (err instanceof Error && err.name === "TimeoutError") throw new Error("The transcription service took too long to answer");
-    throw new Error(`The transcription service is not running at ${serviceUrl()}. Start it with: npm run ml:serve`);
+    const name = err instanceof Error ? err.name : "";
+    if (name === "TimeoutError" || name === "AbortError") throw new Error("The transcription service took too long to answer");
+    throw new Error(service.unreachable());
   }
   if (!res.ok) throw new Error(`Transcription service: ${await errorText(res)}`);
   return res;

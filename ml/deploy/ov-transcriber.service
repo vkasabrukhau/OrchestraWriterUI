@@ -1,0 +1,19 @@
+[Unit]
+Description=Orchestra Visualizer transcription service (MuScriptor, ml/server.py)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=transcriber
+Group=transcriber
+# "+": prepare.sh runs as root (S3, SSM, file ownership), the service does not.
+ExecStartPre=+/opt/ov-transcriber/bin/prepare.sh
+ExecStart=/opt/ov-transcriber/bin/run.sh
+# The first start installs PyTorch and the CUDA libraries.
+TimeoutStartSec=40min
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
