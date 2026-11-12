@@ -551,6 +551,8 @@ export function parseSyncState(v: unknown, mode: "strict" | "lenient"): { sync: 
     return out;
   };
 
+  if (mode === "strict" && !(finite(v.averageConfidence) && v.averageConfidence >= 0 && v.averageConfidence <= 100))
+    throw new SyncShapeError("sync.averageConfidence must be in [0, 100]");
   const sync: SyncState = {
     method: typeof v.method === "string" ? v.method.slice(0, 100) : "unknown",
     auto,
