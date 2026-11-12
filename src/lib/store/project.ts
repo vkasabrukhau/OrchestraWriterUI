@@ -65,6 +65,18 @@ interface ProjectState {
   setLabelMode: (m: DisplaySettings["labelMode"]) => void;
   setReducedMotion: (v: boolean) => void;
   setGlowScale: (v: number) => void;
+  /** put one part back on its default seat and drop its color override */
+  resetPart: (id: string) => void;
+  // display history (undo/redo of display edits only)
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
+  /** group the edits until `endGesture` into one undo step (a drag) */
+  beginGesture: () => void;
+  endGesture: () => void;
+  // project metadata
+  rename: (title: string) => Promise<void>;
   // sync
   addMarker: (measure: number, startSec: number) => void;
   nudgeMarker: (measure: number, deltaSec: number) => void;
@@ -92,6 +104,19 @@ let editVersion = 0;
 let loadSeq = 0;
 /** info_map_key of the info map in the store; a new key on refresh means the score was replaced */
 let loadedInfoMapKey: string | null = null;
+
+/** Display history. Snapshots are cheap: every edit replaces `display` with a new object. */
+export const HISTORY_LIMIT = 100;
+let past: DisplaySettings[] = [];
+let future: DisplaySettings[] = [];
+/** inside a gesture, only the first edit records a snapshot */
+let gesture: { recorded: boolean } | null = null;
+
+function clearHistory() {
+  past = [];
+  future = [];
+  gesture = null;
+}
 
 function clearTimers() {
   for (const kind of Object.keys(timers) as SaveKind[]) {
@@ -185,9 +210,27 @@ export const useProject = create<ProjectState>((set, get) => {
       const display = fn(s);
       if (!display) return s;
       editVersion++;
-      return { display, dirty: true };
+      if (s.display && (!gesture || !gesture.recorded)) {
+        past.push(s.display);
+        if (past.length > HISTORY_LIMIT) past.shift();
+        future = [];
+        if (gesture) gesture.recorded = true;
+      }
+      return { display, dirty: true, canUndo: past.length > 0, canRedo: false };
     });
     if (pendingKinds.has("display") || get().dirty) schedule("display", DISPLAY_SAVE_DEBOUNCE_MS);
+  };
+
+  /** Swap `display` for a snapshot from history and autosave it like any edit. */
+  const restoreDisplay = (from: DisplaySettings[], to: DisplaySettings[]) => {
+    const current = get().display;
+    const next = from.pop();
+    if (!current || !next) return;
+    to.push(current);
+    gesture = null;
+    editVersion++;
+    set({ display: next, dirty: true, canUndo: past.length > 0, canRedo: future.length > 0 });
+    schedule("display", DISPLAY_SAVE_DEBOUNCE_MS);
   };
 
   const editSync = (fn: (s: ProjectState) => SyncState | null) => {
@@ -220,6 +263,8 @@ export const useProject = create<ProjectState>((set, get) => {
     audioUrl: null,
     dirty: false,
     savedAt: null,
+    canUndo: false,
+    canRedo: false,
 
     load: async (id) => {
       const s = get();
@@ -227,6 +272,7 @@ export const useProject = create<ProjectState>((set, get) => {
       // Flush the previous project's edits before switching.
       if (s.projectId && s.projectId !== id && (pendingKinds.size > 0 || inflight.size > 0)) await saveNow();
       clearTimers();
+      clearHistory();
       loadedInfoMapKey = null;
       const seq = ++loadSeq;
       const fresh = (): boolean => seq === loadSeq && get().projectId === id;
@@ -245,6 +291,8 @@ export const useProject = create<ProjectState>((set, get) => {
         audioUrl: null,
         dirty: false,
         savedAt: null,
+        canUndo: false,
+        canRedo: false,
       });
       try {
         const project = await api.getProject(id);
@@ -316,7 +364,15 @@ export const useProject = create<ProjectState>((set, get) => {
         const editedMeanwhile = editVersion !== versionAtStart;
         const keepLocal = (kind: SaveKind) => editedMeanwhile || pendingKinds.has(kind) || inflightKinds.has(kind);
         if (!keepLocal("sync")) patch.sync = project.sync;
-        if (!keepLocal("display")) patch.display = project.display ?? s.display ?? (infoMap ? defaultDisplay(infoMap) : null);
+        if (!keepLocal("display")) {
+          patch.display = project.display ?? s.display ?? (infoMap ? defaultDisplay(infoMap) : null);
+          // the server copy may differ from what the snapshots were taken against
+          if (patch.display !== s.display) {
+            clearHistory();
+            patch.canUndo = false;
+            patch.canRedo = false;
+          }
+        }
         patch.peaks = project.audioPeaks ?? (infoMap ? peaksFromInfoMap(infoMap) : null);
         if (project.hasRecording) {
           patch.audioUrl = (await api.getProjectUrls(id).catch(() => ({ audio: null }))).audio;
@@ -398,6 +454,41 @@ export const useProject = create<ProjectState>((set, get) => {
     setLabelMode: (labelMode) => editDisplay((s) => (s.display ? { ...s.display, labelMode } : null)),
     setReducedMotion: (reducedMotion) => editDisplay((s) => (s.display ? { ...s.display, reducedMotion } : null)),
     setGlowScale: (glowScale) => editDisplay((s) => (s.display ? { ...s.display, glowScale } : null)),
+
+    resetPart: (id) =>
+      editDisplay((s) => {
+        if (!s.display || !s.infoMap) return null;
+        const seat = defaultPositions(s.infoMap.instruments, s.display.sections)[id];
+        const colors = { ...s.display.colors };
+        delete colors[id];
+        return { ...s.display, colors, positions: seat ? { ...s.display.positions, [id]: seat } : s.display.positions };
+      }),
+
+    undo: () => restoreDisplay(past, future),
+    redo: () => restoreDisplay(future, past),
+    beginGesture: () => {
+      gesture = { recorded: false };
+    },
+    endGesture: () => {
+      gesture = null;
+    },
+
+    rename: async (title) => {
+      const { projectId, summary } = get();
+      const next = title.trim();
+      if (!projectId || !summary || !next || next === summary.title) return;
+      set({ summary: { ...summary, title: next } });
+      try {
+        const project = await api.updateProject(projectId, { title: next });
+        if (get().projectId !== projectId) return;
+        if (project) set({ savedAt: project.updatedAt });
+      } catch (err) {
+        if (get().projectId !== projectId) return;
+        const current = get().summary;
+        if (current) set({ summary: { ...current, title: summary.title } });
+        throw new Error(errorMessage(err, "Could not rename the project"));
+      }
+    },
 
     addMarker: (measure, startSec) =>
       editSync((s) => {

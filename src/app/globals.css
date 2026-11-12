@@ -108,6 +108,89 @@
   --shadow-lg: 0 30px 70px -30px rgba(0, 0, 0, 0.8);
 }
 
+/* ------------------------------------------------------------------ */
+/* Editor surface — "studio" chrome for the editing pages (ADR 0014)    */
+/* Set on <html> while an editor page is mounted, so Radix portals      */
+/* (menus, tooltips, dialogs) pick it up too. Neutral grays, hairlines, */
+/* small radii, teal accent. The `brass` tokens are the accent role, so */
+/* existing primitives follow without changes. The stage keeps its own */
+/* accent (see the .stage-frame reset below) so Customize matches the  */
+/* exported video.                                                      */
+/* ------------------------------------------------------------------ */
+
+:root {
+  /* the page accent before any surface override; the stage reads these */
+  --stage-accent: #b5842c;
+  --stage-accent-2: #d7ae55;
+  --stage-accent-3: #8e6620;
+}
+
+:root[data-surface="editor"] {
+  --paper: #ffffff;
+  --paper-2: #ffffff;
+  --paper-3: #f7f8f9;
+  --paper-4: #eceff1;
+  --paper-glass: rgba(255, 255, 255, 0.86);
+  --ink: #242a30;
+  --ink-2: #59636d;
+  --ink-3: #7a828b;
+  --ink-4: #a9b0b7;
+  --line: #dfe3e6;
+  --line-strong: #c9cfd4;
+  --brass: #22766b;
+  --brass-2: #2f8f82;
+  --brass-3: #1b5f56;
+  --brass-soft: #e8f3f0;
+  --brass-glow: rgba(34, 118, 107, 0.35);
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --shadow-xs: 0 1px 1px rgba(36, 42, 48, 0.05);
+  --shadow-sm: 0 1px 2px rgba(36, 42, 48, 0.08);
+  --shadow: 0 6px 20px -8px rgba(36, 42, 48, 0.22), 0 1px 3px rgba(36, 42, 48, 0.08);
+  --shadow-lg: 0 16px 40px -16px rgba(36, 42, 48, 0.3), 0 2px 6px rgba(36, 42, 48, 0.08);
+  --focus: 0 0 0 2px rgba(34, 118, 107, 0.4);
+}
+
+:root[data-theme="stage"] {
+  --stage-accent: #d7ae55;
+  --stage-accent-2: #ecc97a;
+  --stage-accent-3: #b5842c;
+}
+
+:root[data-surface="editor"][data-theme="stage"] {
+  --paper: #15181c;
+  --paper-2: #1b1f24;
+  --paper-3: #22272d;
+  --paper-4: #2b3138;
+  --paper-glass: rgba(27, 31, 36, 0.86);
+  --ink: #e6e9ec;
+  --ink-2: #b4bcc4;
+  --ink-3: #87909a;
+  --ink-4: #5d656e;
+  --line: #2c3238;
+  --line-strong: #3a4148;
+  --brass: #3fb3a1;
+  --brass-2: #5cc6b5;
+  --brass-3: #2f9686;
+  --brass-soft: rgba(63, 179, 161, 0.14);
+  --brass-glow: rgba(63, 179, 161, 0.35);
+}
+
+/* the stage keeps the page's original accent inside the editor */
+:root[data-surface="editor"] .stage-frame {
+  --brass: var(--stage-accent);
+  --brass-2: var(--stage-accent-2);
+  --brass-3: var(--stage-accent-3);
+}
+
+/* flat accent fills instead of the brass gradient */
+:root[data-surface="editor"] .brass-gradient {
+  background: var(--brass);
+}
+
 @theme inline {
   --color-paper: var(--paper);
   --color-paper-2: var(--paper-2);
@@ -446,9 +529,10 @@ button,
   color: transparent;
 }
 
-/* the dynamics ladder gradient: pp (dark) → fff (bright brass) */
+/* the dynamics ladder gradient: pp (dark) → fff (bright brass). It mirrors the
+   stage, so it reads the stage accent, which the editor surface leaves alone. */
 .ladder-gradient {
-  background: linear-gradient(90deg, #4a3d22 0%, #7a6230 30%, var(--brass) 60%, var(--brass-2) 82%, #f6e3ad 100%);
+  background: linear-gradient(90deg, #4a3d22 0%, #7a6230 30%, var(--stage-accent) 60%, var(--stage-accent-2) 82%, #f6e3ad 100%);
 }
 
 /* thin scrollbars inside panels */

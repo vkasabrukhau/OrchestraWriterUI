@@ -23,6 +23,13 @@ export interface StageProps {
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
   onMove?: (id: string, pos: { x: number; y: number }) => void;
+  /** a drag started / ended (Customize groups the moves into one undo step) */
+  onMoveStart?: (id: string) => void;
+  onMoveEnd?: (id: string) => void;
+  /** select only; dragging is off (the editor's "Lock layout") */
+  locked?: boolean;
+  /** accessible name; with `interactive` the stage is focusable so the editor can scope arrow-key nudging to it */
+  ariaLabel?: string;
   /** show a constant mid level for every visible part (Customize when paused) */
   previewAll?: boolean;
   showLegend?: boolean;
@@ -45,6 +52,10 @@ export function Stage({
   selectedId,
   onSelect,
   onMove,
+  onMoveStart,
+  onMoveEnd,
+  locked,
+  ariaLabel,
   previewAll,
   showLegend,
   showSeating = true,
@@ -162,19 +173,30 @@ export function Stage({
 
   const layout = useMemo(() => placeLabels(labels, size.w, size.h), [labels, size]);
 
+  const endDrag = () => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (drag) onMoveEnd?.(drag.id);
+  };
+
   return (
     <div
       ref={wrapRef}
-      className={cx("stage-frame aspect-video w-full", interactive && "cursor-grab", className)}
+      className={cx("stage-frame aspect-video w-full", interactive && (locked ? "cursor-default" : "cursor-grab"), className)}
+      tabIndex={interactive ? 0 : undefined}
+      role={interactive ? "application" : undefined}
+      aria-label={interactive ? ariaLabel : undefined}
+      data-editor-stage={interactive ? "" : undefined}
       onPointerDown={
         interactive
           ? (e) => {
               const { x, y } = toNorm(e);
               const id = hit(x, y);
               onSelect?.(id);
-              if (id) {
+              if (id && !locked) {
                 const pos = displayRef.current.positions[id];
                 dragRef.current = { id, ox: pos.x - x, oy: pos.y - y };
+                onMoveStart?.(id);
                 (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               }
             }
@@ -190,8 +212,8 @@ export function Stage({
             }
           : undefined
       }
-      onPointerUp={interactive ? () => (dragRef.current = null) : undefined}
-      onPointerCancel={interactive ? () => (dragRef.current = null) : undefined}
+      onPointerUp={interactive ? endDrag : undefined}
+      onPointerCancel={interactive ? endDrag : undefined}
     >
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" style={{ width: "100%", height: "100%" }} aria-hidden />
 

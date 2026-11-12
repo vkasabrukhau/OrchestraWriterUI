@@ -102,7 +102,7 @@ test("a recording goes from upload through sync, display, preview and both expor
     await page.mouse.move(px(target).x, px(target).y, { steps: 12 });
     await page.mouse.up();
 
-    const selected = page.getByRole("region", { name: "Selected part" }).getByRole("heading");
+    const selected = page.getByRole("region", { name: "Selected part" }).getByRole("heading", { level: 2 });
     await expect(selected).toHaveText("Violin I");
 
     // autosave clears "Unsaved changes" only once the last edit is on the server

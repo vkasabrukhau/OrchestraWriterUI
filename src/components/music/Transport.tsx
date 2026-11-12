@@ -158,3 +158,105 @@ export function Transport({
     </div>
   );
 }
+
+/** 1:05.230 */
+export function formatPrecise(sec: number): string {
+  const s = Math.max(0, sec);
+  const m = Math.floor(s / 60);
+  const rest = s - m * 60;
+  return `${m}:${rest.toFixed(3).padStart(6, "0")}`;
+}
+
+/**
+ * The transport in the editor chrome (ADR 0014): one compact row with square
+ * tool buttons, precise time, a slim scrubber and the audio source. Same
+ * clock and keyboard shortcuts as `Transport`; mount one or the other.
+ */
+export function EditorTransport({
+  peaks,
+  className,
+  measureLabel,
+  sourceLabel,
+}: {
+  peaks: number[];
+  className?: string;
+  /** "Bar 18 / 56" */
+  measureLabel?: string;
+  /** "Uploaded recording" / "Generated from score" */
+  sourceLabel?: string;
+}) {
+  const playing = usePlayback((s) => s.playing);
+  const time = usePlayback((s) => s.time);
+  const duration = usePlayback((s) => s.duration);
+  const rate = usePlayback((s) => s.rate);
+  const muted = usePlayback((s) => s.muted);
+  const loop = usePlayback((s) => s.loop);
+  const hasEngine = usePlayback((s) => s.engine !== null);
+  const ready = usePlayback((s) => s.ready);
+  const error = usePlayback((s) => s.error);
+  const { toggle, seek, skip, setRate, toggleMute, toggleLoop } = usePlayback.getState();
+  const loading = hasEngine && !ready && !error;
+  const unavailable = hasEngine && !ready && !!error;
+  const icon = "grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-sm)] text-ink-2 hover:bg-paper-3 hover:text-ink";
+
+  return (
+    <div className={cx("flex h-12 items-center gap-1.5 px-4", className)}>
+      <PlaybackClock />
+      <PlaybackShortcuts />
+      <Tooltip label="Back 5 s (←)">
+        <button type="button" className={icon} aria-label="Back 5 seconds" onClick={() => skip(-5)}>
+          <SkipBack size={14} />
+        </button>
+      </Tooltip>
+      <Tooltip label={playing ? "Pause (space)" : "Play (space)"}>
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={unavailable}
+          aria-label={playing ? "Pause" : "Play"}
+          aria-busy={loading || undefined}
+          className="mx-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brass text-white transition-transform hover:bg-brass-3 active:scale-95 disabled:opacity-40"
+        >
+          {playing ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" className="translate-x-[1px]" />}
+        </button>
+      </Tooltip>
+      <Tooltip label="Forward 5 s (→)">
+        <button type="button" className={icon} aria-label="Forward 5 seconds" onClick={() => skip(5)}>
+          <SkipForward size={14} />
+        </button>
+      </Tooltip>
+      <Tooltip label="Loop">
+        <button type="button" className={cx(icon, loop && "bg-brass-soft text-brass-3")} aria-label="Loop" aria-pressed={loop} onClick={toggleLoop}>
+          <Repeat size={14} />
+        </button>
+      </Tooltip>
+      <span className="mx-2 h-5 w-px shrink-0 bg-line" aria-hidden />
+      <span className="tnum w-[4.6rem] shrink-0 text-[13px] font-semibold text-ink">{formatPrecise(time)}</span>
+      <span className="tnum shrink-0 text-[11px] text-ink-3">/ {formatPrecise(duration)}</span>
+      <Waveform peaks={peaks} progress={duration ? time / duration : 0} onSeek={(f) => seek(f * duration)} height={26} className="mx-3 min-w-[120px] flex-1" />
+      {measureLabel && <span className="tnum hidden shrink-0 text-[11.5px] text-ink-2 md:inline">{measureLabel}</span>}
+      <Tooltip label="Playback speed">
+        <button
+          type="button"
+          onClick={() => setRate(rate === 1 ? 0.75 : rate === 0.75 ? 0.5 : 1)}
+          className="tnum h-7 shrink-0 rounded-[var(--radius-sm)] px-2 text-[11.5px] font-medium text-ink-2 hover:bg-paper-3"
+        >
+          {rate}×
+        </button>
+      </Tooltip>
+      <Tooltip label={muted ? "Unmute (m)" : "Mute (m)"}>
+        <button type="button" className={icon} aria-label={muted ? "Unmute" : "Mute"} onClick={toggleMute}>
+          {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+        </button>
+      </Tooltip>
+      {(loading || error) ? (
+        <span role={error ? "alert" : "status"} title={error ?? undefined} className={cx("flex min-w-0 max-w-[16rem] items-center gap-1 text-[11.5px]", error ? "text-danger" : "text-ink-3")}>
+          {error && <AlertCircle size={12} aria-hidden className="shrink-0" />}
+          <span className="truncate">{error ?? "Loading audio…"}</span>
+        </span>
+      ) : (
+        sourceLabel && <span className="hidden shrink-0 text-[11.5px] text-ink-3 lg:inline">{sourceLabel}</span>
+      )}
+    </div>
+  );
+}

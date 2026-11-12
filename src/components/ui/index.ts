@@ -16,3 +16,4 @@ export * from "./Slider";
 export * from "./Collapsible";
 export * from "./Toaster";
 export * from "./toast";
+export * from "./Menubar";

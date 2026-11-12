@@ -1,13 +1,13 @@
 ---
 name: backend-integration-scope-conflict
-description: feat/backend-integration (reviewed 2026-10-26) built sign-in, Postgres/S3 project storage and server autosave, which CLAUDE.md lists as later phase; check whether a human decision was recorded before treating accounts as in scope
+description: Accounts/server storage were flagged out of scope on 2026-10-26; RESOLVED by ADR 0013 + CLAUDE.md scope table (seen 2026-11-12). Still check a no-account .ovproj path exists
 metadata:
   type: project
 ---
-On 2026-10-26 the branch `feat/backend-integration` (merging the OrchestraWriter Hono/Better Auth/Postgres/S3 backend into Next.js) was reviewed. It made an account required for the whole workflow (`src/proxy.ts` protects `/projects`), autosaved display/sync to Postgres (that is auto-restore plus cloud storage), and added a profile `Preferences` store. CLAUDE.md's scope table, ADR 0001, requirement 8 Scope 1 and `.claude/rules/export-and-project-file.md` all still call these later phase. The branch's STATE.md edit dropped "sign-in" and "cloud storage" from the later-phase backlog without saying so explicitly. I flagged it as the first blocker.
+On 2026-10-26 `feat/backend-integration` was reviewed. It made accounts required, autosaved display/sync to Postgres and added a profile Preferences store, while CLAUDE.md/ADR 0001 still called those later phase. I flagged it as the first blocker. It also kept the audio-to-score transcription pipeline (`/api/transcriptions`), which is not in the spec (STATE.md open question 6).
 
-It also kept the backend's audio-to-score transcription pipeline (`/api/files`, `/api/transcriptions`, placeholder model). That feature is not in the spec at all.
+Resolution (verified 2026-11-12): `docs/decisions/0013-accounts-in-scope.md` exists, and the CLAUDE.md scope table now lists "accounts and server-side projects (ADR 0013)" as MVP. Account-free mode and public share pages are the later-phase items now.
 
-**Why:** ADR 0001 says later-phase work needs a STATE.md move, and CLAUDE.md says to stop and ask first. Quietly editing a backlog line is not a recorded decision.
+**Why:** ADR 0001 says later-phase work needs a recorded decision; that decision now exists.
 
-**How to apply:** On later reviews, check whether a superseding ADR for 0001 exists and whether the CLAUDE.md scope table and the export rule were updated. If they were, accounts and server storage are in scope. If not, keep flagging. Either way, check that a no-account path to save and open `.ovproj` still exists. Related: [[recurring-review-findings]].
+**How to apply:** Do not flag accounts, autosave or server storage as scope creep anymore. Do flag account-free mode, share pages, or surfacing the transcription pipeline without a STATE.md decision. Related: [[recurring-review-findings]].
