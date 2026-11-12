@@ -13,3 +13,8 @@ dependencies = [
 
 [tool.uv]
 package = false
+# torchaudio's newest release (2.11) is built against torch 2.11's CUDA (13.0).
+# On Linux with a GPU it refuses to load next to a newer torch ("compiled with
+# different CUDA versions"), so keep torch at 2.11 there (the AWS instance,
+# ADR 0014). macOS wheels have no CUDA and keep the newest torch.
+constraint-dependencies = ["torch==2.11.*; sys_platform == 'linux'"]
