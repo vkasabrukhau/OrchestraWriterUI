@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Eye, EyeOff, ListFilter, Search, X } from "lucide-react";
 import type { InfoMap } from "@/shared/info-map";
 import { MAX_PARTS } from "@/shared/info-map";
 import type { DisplaySettings } from "@/shared/project-file";
 import { SECTION_ORDER, type Section } from "@/shared/sections";
 import { partColor } from "@/lib/visualizer";
-import { useEditor, usePartActivity, type PartFilter } from "@/lib/store/editor";
+import { useEditor, useEditorRequest, usePartActivity, type PartFilter } from "@/lib/store/editor";
 import { useProject } from "@/lib/store/project";
 import { formatShortcut } from "@/lib/editor/commands";
 import { cx } from "@/lib/utils/format";
@@ -37,13 +37,10 @@ export function InstrumentsPanel({ infoMap, display }: { infoMap: InfoMap; displ
   const setSearch = useEditor((s) => s.setSearch);
   const filter = useEditor((s) => s.filter);
   const setFilter = useEditor((s) => s.setFilter);
-  const searchFocus = useEditor((s) => s.searchFocus);
   const searchRef = useRef<HTMLInputElement>(null);
   const [collapsed, setCollapsed] = useState<Partial<Record<Section, boolean>>>({});
 
-  useEffect(() => {
-    if (searchFocus > 0) searchRef.current?.focus();
-  }, [searchFocus]);
+  useEditorRequest("searchFocus", () => searchRef.current?.focus());
 
   const visible = useMemo(() => new Set(display.visibleParts), [display.visibleParts]);
   const soloed = display.visibleParts.length === 1 ? display.visibleParts[0] : null;
@@ -153,7 +150,7 @@ export function InstrumentsPanel({ infoMap, display }: { infoMap: InfoMap; displ
                 <span className="tnum text-[10.5px] text-ink-3">
                   {shownCount}/{members.length}
                 </span>
-                <ColorSwatch size="sm" value={display.sectionColors[section]} onChange={(c) => setSectionColor(section, c)} label={`${section} color`} />
+                <ColorSwatch size="sm" value={display.sectionColors[section]} onChange={(c) => setSectionColor(section, c, { merge: `section-color:${section}` })} label={`${section} color`} />
                 <Tooltip label={allShown ? `Hide ${section}` : `Show ${section}`}>
                   <button
                     type="button"

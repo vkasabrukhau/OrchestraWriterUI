@@ -14,7 +14,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePat
 
 import { PlaybackShortcuts } from "@/components/music/Transport";
 import { buildCommands, type CommandContext } from "@/lib/editor/commands";
-import { useEditor } from "@/lib/store/editor";
+import { useEditor, useEditorRequest } from "@/lib/store/editor";
 import { usePlayback } from "@/lib/store/playback";
 import { useProject } from "@/lib/store/project";
 import { useEditorShortcuts } from "./useEditorCommands";
@@ -69,13 +69,19 @@ function Harness() {
       <button type="button" data-testid="other">
         other
       </button>
+      <div role="menu">
+        <div role="menuitem" tabIndex={-1} data-testid="menuitem">
+          Play
+        </div>
+      </div>
+      <div role="slider" tabIndex={0} aria-valuenow={1} data-testid="slider" />
     </>
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useProject.setState({ projectId: "p1", display, dirty: false });
+  useProject.setState({ projectId: "p1", display, dirty: false, canUndo: false, canRedo: false });
   useEditor.setState({ selectedId: "P1", locked: false });
   usePlayback.setState({ time: 10, duration: 100, playing: false });
 });
@@ -127,5 +133,93 @@ describe("editor shortcuts", () => {
     other.focus();
     fireEvent.keyDown(other, { key: "h", code: "KeyH" });
     expect(toggleVisible).toHaveBeenCalledWith("P1", false);
+  });
+});
+
+describe("playback shortcuts leave keys to the focused widget", () => {
+  it("Space on a menu item does not also toggle playback", () => {
+    const { getByTestId } = render(<Harness />);
+    const item = getByTestId("menuitem");
+    item.focus();
+    fireEvent.keyDown(item, { key: " ", code: "Space" });
+    expect(usePlayback.getState().playing).toBe(false);
+  });
+
+  it("arrow keys on a slider do not seek", () => {
+    const { getByTestId } = render(<Harness />);
+    const slider = getByTestId("slider");
+    slider.focus();
+    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    fireEvent.keyDown(slider, { key: "Home" });
+    expect(usePlayback.getState().time).toBe(10);
+  });
+
+  it("modifier combinations are not playback shortcuts", () => {
+    const { getByTestId } = render(<Harness />);
+    const other = getByTestId("other");
+    other.focus();
+    fireEvent.keyDown(other, { key: "ArrowRight", metaKey: true });
+    fireEvent.keyDown(other, { key: "ArrowRight", altKey: true });
+    expect(usePlayback.getState().time).toBe(10);
+  });
+});
+
+describe("editor shortcut details", () => {
+  it("a disabled shortcut does not swallow its key", () => {
+    useEditor.setState({ selectedId: null });
+    const { getByTestId } = render(<Harness />);
+    const other = getByTestId("other");
+    other.focus();
+    // fireEvent returns false when the event was default-prevented
+    expect(fireEvent.keyDown(other, { key: "Escape", code: "Escape" })).toBe(true);
+    expect(fireEvent.keyDown(other, { key: "h", code: "KeyH" })).toBe(true);
+    expect(toggleVisible).not.toHaveBeenCalled();
+  });
+
+  it("letter shortcuts follow the keyboard layout, not the physical key", () => {
+    const { getByTestId } = render(<Harness />);
+    const other = getByTestId("other");
+    other.focus();
+    // AZERTY-style: the key labelled H sits where QWERTY has J
+    fireEvent.keyDown(other, { key: "h", code: "KeyJ" });
+    expect(toggleVisible).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(other, { key: "j", code: "KeyH" });
+    expect(toggleVisible).toHaveBeenCalledTimes(1);
+  });
+
+  it("a held arrow key is one undo step; separate presses are separate steps", () => {
+    const { getByTestId } = render(<Harness />);
+    const stage = getByTestId("stage");
+    stage.focus();
+    fireEvent.keyDown(stage, { key: "ArrowRight" });
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(stage, { key: "ArrowRight", repeat: true });
+    fireEvent.keyDown(stage, { key: "ArrowRight" });
+    expect(useProject.getState().display!.positions.P1.x).toBeCloseTo(0.57);
+    useProject.getState().undo();
+    expect(useProject.getState().display!.positions.P1.x).toBeCloseTo(0.56);
+    useProject.getState().undo();
+    // (earlier tests' steps may still be below these two; the stacks are module-wide)
+    expect(useProject.getState().display!.positions.P1.x).toBeCloseTo(0.5);
+  });
+});
+
+describe("useEditorRequest", () => {
+  function Listener({ onFocus }: { onFocus: () => void }) {
+    useEditorRequest("searchFocus", onFocus);
+    return null;
+  }
+
+  it("reacts to requests made while mounted, and does not replay them on remount", () => {
+    const first = vi.fn();
+    const a = render(<Listener onFocus={first} />);
+    useEditor.getState().focusSearch();
+    expect(first).toHaveBeenCalledTimes(1);
+    a.unmount();
+
+    const second = vi.fn();
+    render(<Listener onFocus={second} />);
+    expect(second).not.toHaveBeenCalled();
+    useEditor.getState().focusSearch();
+    expect(second).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
-import { ArrowRight, Lock, MousePointer2, Redo2, RotateCcw, Save, Undo2 } from "lucide-react";
+import { useMemo, type ReactNode } from "react";
+import { ArrowRight, Lock, Menu as MenuIcon, MousePointer2, Redo2, RotateCcw, Save, Undo2 } from "lucide-react";
 import { LogoMark } from "@/components/brand/Logo";
-import { StepTabs } from "@/components/shell/StepTabs";
+import { StepMenu, StepTabs } from "@/components/shell/StepTabs";
 import { UserMenu } from "@/components/shell/UserMenu";
 import { useSaveStatus } from "@/components/shell/useSaveStatus";
 import { barNumber } from "@/components/music/bars";
@@ -71,6 +71,16 @@ function Check({ c }: { c: Command }) {
   );
 }
 
+/** The menus, as item lists, so the wide bar and the compact menu share them. */
+const MENUS: Array<{ label: string; Items: (props: { commands: Commands }) => ReactNode }> = [
+  { label: "File", Items: FileItems },
+  { label: "Edit", Items: EditItems },
+  { label: "View", Items: ViewItems },
+  { label: "Playback", Items: PlaybackItems },
+  { label: "Parts", Items: PartsItems },
+  { label: "Help", Items: HelpItems },
+];
+
 function MenuRow({ projectId, commands: k }: { projectId: string; commands: Commands }) {
   const loadedId = useProject((s) => s.projectId);
   const summary = useProject((s) => s.summary);
@@ -81,82 +91,25 @@ function MenuRow({ projectId, commands: k }: { projectId: string; commands: Comm
     <div className="relative flex h-8.5 items-center gap-1 border-b border-line px-2.5">
       <LogoMark size={20} className="mr-1 shrink-0" />
       <Menubar className="hidden md:flex">
-        <MenubarMenu label="File">
-          <Item c={k["file.new"]} />
-          <Item c={k["file.open"]} />
-          <MenubarSeparator />
-          <Item c={k["file.save"]} />
-          <Item c={k["file.rename"]} />
-          <Item c={k["file.export"]} />
-          <MenubarSeparator />
-          <Item c={k["file.library"]} />
-        </MenubarMenu>
-        <MenubarMenu label="Edit">
-          <Item c={k["edit.undo"]} />
-          <Item c={k["edit.redo"]} />
-          <MenubarSeparator />
-          <Item c={k["edit.find"]} />
-          <Item c={k["edit.deselect"]} />
-          <MenubarSeparator />
-          <Item c={k["edit.resetPart"]} />
-          <Item c={k["edit.resetPositions"]} />
-          <Item c={k["edit.resetColors"]} />
-        </MenubarMenu>
-        <MenubarMenu label="View">
-          <Check c={k["view.instruments"]} />
-          <Check c={k["view.properties"]} />
-          <Check c={k["view.lanes"]} />
-          <MenubarSeparator />
-          <Check c={k["view.labels"]} />
-          <MenubarSub label="Label by" disabled={!k["view.labelSections"].enabled}>
-            <MenubarRadioGroup value={k["view.labelParts"].checked ? "parts" : "sections"} onValueChange={(v) => (v === "parts" ? k["view.labelParts"] : k["view.labelSections"]).run()}>
-              <MenubarRadioItem value="sections">Sections</MenubarRadioItem>
-              <MenubarRadioItem value="parts">Every part</MenubarRadioItem>
-            </MenubarRadioGroup>
-          </MenubarSub>
-          <Check c={k["view.seating"]} />
-          <Check c={k["view.legend"]} />
-          <MenubarSeparator />
-          <Check c={k["view.lock"]} />
-          <Item c={k["view.fullscreen"]} />
-          <MenubarSeparator />
-          <MenubarSub label="Theme">
-            <MenubarRadioGroup value={k["view.themeDark"].checked ? "stage" : "program"} onValueChange={(v) => (v === "stage" ? k["view.themeDark"] : k["view.themeLight"]).run()}>
-              <MenubarRadioItem value="program">Light</MenubarRadioItem>
-              <MenubarRadioItem value="stage">Dark</MenubarRadioItem>
-            </MenubarRadioGroup>
-          </MenubarSub>
-          <Check c={k["view.reducedMotion"]} />
-        </MenubarMenu>
-        <MenubarMenu label="Playback">
-          <Item c={k["play.toggle"]} />
-          <Item c={k["play.start"]} />
-          <Item c={k["play.back"]} />
-          <Item c={k["play.forward"]} />
-          <Item c={k["play.goto"]} />
-          <MenubarSeparator />
-          <Check c={k["play.loop"]} />
-          <MenubarSub label="Speed">
-            <MenubarRadioGroup
-              value={k["play.rate05"].checked ? "0.5" : k["play.rate075"].checked ? "0.75" : "1"}
-              onValueChange={(v) => (v === "0.5" ? k["play.rate05"] : v === "0.75" ? k["play.rate075"] : k["play.rate1"]).run()}
-            >
-              <MenubarRadioItem value="1">1×</MenubarRadioItem>
-              <MenubarRadioItem value="0.75">0.75×</MenubarRadioItem>
-              <MenubarRadioItem value="0.5">0.5×</MenubarRadioItem>
-            </MenubarRadioGroup>
-          </MenubarSub>
-          <Check c={k["play.mute"]} />
-        </MenubarMenu>
-        <PartsMenu commands={k} />
-        <MenubarMenu label="Help">
-          <Item c={k["help.shortcuts"]} />
-          <Item c={k["help.about"]} />
+        {MENUS.map(({ label, Items }) => (
+          <MenubarMenu key={label} label={label}>
+            <Items commands={k} />
+          </MenubarMenu>
+        ))}
+      </Menubar>
+      {/* narrow windows: the same menus in one list, grouped under their names */}
+      <Menubar className="md:hidden">
+        <MenubarMenu label={<MenuIcon size={15} aria-hidden />} ariaLabel="Menu" inlineSubs>
+          {MENUS.map(({ label, Items }) => (
+            <MenubarSub key={label} label={label}>
+              <Items commands={k} />
+            </MenubarSub>
+          ))}
         </MenubarMenu>
       </Menubar>
 
       {/* window title: the project name, click to rename */}
-      <div className="pointer-events-none absolute inset-x-0 flex justify-center max-md:static max-md:flex-1 max-md:justify-start">
+      <div className="pointer-events-none absolute inset-x-0 flex justify-center max-md:static max-md:min-w-0 max-md:flex-1 max-md:justify-start">
         {title && (
           <Tooltip label="Rename project" side="bottom">
             <button
@@ -177,7 +130,103 @@ function MenuRow({ projectId, commands: k }: { projectId: string; commands: Comm
   );
 }
 
-function PartsMenu({ commands: k }: { commands: Commands }) {
+function FileItems({ commands: k }: { commands: Commands }) {
+  return (
+    <>
+      <Item c={k["file.new"]} />
+      <Item c={k["file.open"]} />
+      <MenubarSeparator />
+      <Item c={k["file.save"]} />
+      <Item c={k["file.rename"]} />
+      <Item c={k["file.export"]} />
+      <MenubarSeparator />
+      <Item c={k["file.library"]} />
+    </>
+  );
+}
+
+function EditItems({ commands: k }: { commands: Commands }) {
+  return (
+    <>
+      <Item c={k["edit.undo"]} />
+      <Item c={k["edit.redo"]} />
+      <MenubarSeparator />
+      <Item c={k["edit.find"]} />
+      <Item c={k["edit.deselect"]} />
+      <MenubarSeparator />
+      <Item c={k["edit.resetPart"]} />
+      <Item c={k["edit.resetPositions"]} />
+      <Item c={k["edit.resetColors"]} />
+    </>
+  );
+}
+
+function ViewItems({ commands: k }: { commands: Commands }) {
+  return (
+    <>
+      <Check c={k["view.instruments"]} />
+      <Check c={k["view.properties"]} />
+      <Check c={k["view.lanes"]} />
+      <MenubarSeparator />
+      <Check c={k["view.labels"]} />
+      <MenubarSub label="Label by" disabled={!k["view.labelSections"].enabled}>
+        <MenubarRadioGroup value={k["view.labelParts"].checked ? "parts" : "sections"} onValueChange={(v) => (v === "parts" ? k["view.labelParts"] : k["view.labelSections"]).run()}>
+          <MenubarRadioItem value="sections">Sections</MenubarRadioItem>
+          <MenubarRadioItem value="parts">Every part</MenubarRadioItem>
+        </MenubarRadioGroup>
+      </MenubarSub>
+      <Check c={k["view.seating"]} />
+      <Check c={k["view.legend"]} />
+      <MenubarSeparator />
+      <Check c={k["view.lock"]} />
+      <Item c={k["view.fullscreen"]} />
+      <MenubarSeparator />
+      <MenubarSub label="Theme">
+        <MenubarRadioGroup value={k["view.themeDark"].checked ? "stage" : "program"} onValueChange={(v) => (v === "stage" ? k["view.themeDark"] : k["view.themeLight"]).run()}>
+          <MenubarRadioItem value="program">Light</MenubarRadioItem>
+          <MenubarRadioItem value="stage">Dark</MenubarRadioItem>
+        </MenubarRadioGroup>
+      </MenubarSub>
+      <Check c={k["view.reducedMotion"]} />
+    </>
+  );
+}
+
+function PlaybackItems({ commands: k }: { commands: Commands }) {
+  return (
+    <>
+      <Item c={k["play.toggle"]} />
+      <Item c={k["play.start"]} />
+      <Item c={k["play.back"]} />
+      <Item c={k["play.forward"]} />
+      <Item c={k["play.goto"]} />
+      <MenubarSeparator />
+      <Check c={k["play.loop"]} />
+      <MenubarSub label="Speed">
+        <MenubarRadioGroup
+          value={k["play.rate05"].checked ? "0.5" : k["play.rate075"].checked ? "0.75" : "1"}
+          onValueChange={(v) => (v === "0.5" ? k["play.rate05"] : v === "0.75" ? k["play.rate075"] : k["play.rate1"]).run()}
+        >
+          <MenubarRadioItem value="1">1×</MenubarRadioItem>
+          <MenubarRadioItem value="0.75">0.75×</MenubarRadioItem>
+          <MenubarRadioItem value="0.5">0.5×</MenubarRadioItem>
+        </MenubarRadioGroup>
+      </MenubarSub>
+      <Check c={k["play.mute"]} />
+    </>
+  );
+}
+
+function HelpItems({ commands: k }: { commands: Commands }) {
+  return (
+    <>
+      <Item c={k["help.shortcuts"]} />
+      <Item c={k["help.about"]} />
+    </>
+  );
+}
+
+function PartsItems({ commands: k }: { commands: Commands }) {
   const infoMap = useProject((s) => s.infoMap);
   const display = useProject((s) => s.display);
   const setSectionVisible = useProject((s) => s.setSectionVisible);
@@ -195,7 +244,7 @@ function PartsMenu({ commands: k }: { commands: Commands }) {
   const selectedSection: Section | null = selectedId && infoMap && display ? (display.sections[selectedId] ?? infoMap.instruments.find((i) => i.id === selectedId)?.section ?? null) : null;
 
   return (
-    <MenubarMenu label="Parts">
+    <>
       <Item c={k["parts.toggleVisible"]} />
       <Item c={k["parts.solo"]} />
       <Item c={k["parts.showAll"]} />
@@ -217,7 +266,7 @@ function PartsMenu({ commands: k }: { commands: Commands }) {
         </MenubarRadioGroup>
       </MenubarSub>
       <Item c={k["parts.useSectionColor"]} />
-    </MenubarMenu>
+    </>
   );
 }
 
@@ -232,7 +281,7 @@ function ToolRow({ projectId, commands: k }: { projectId: string; commands: Comm
 
   return (
     <div className="flex h-11 items-center gap-1 px-3 md:px-4">
-      <div className="flex items-center gap-0.5" role="toolbar" aria-label="Editing tools">
+      <div className="flex min-w-0 items-center gap-0.5" role="toolbar" aria-label="Editing tools">
         <ToolButton label="Select and move" pressed={!locked} onClick={() => locked && k["view.lock"].run()}>
           <MousePointer2 size={15} aria-hidden />
         </ToolButton>
@@ -246,28 +295,31 @@ function ToolRow({ projectId, commands: k }: { projectId: string; commands: Comm
         <ToolButton label="Redo" shortcut={sc(k["edit.redo"])} onClick={k["edit.redo"].run} disabled={!k["edit.redo"].enabled}>
           <Redo2 size={15} aria-hidden />
         </ToolButton>
-        <ToolSeparator />
-        <ToolButton label="Reset all positions" onClick={k["edit.resetPositions"].run} disabled={!k["edit.resetPositions"].enabled}>
+        <ToolSeparator className="hidden sm:block" />
+        {/* also in Edit > Reset all positions */}
+        <ToolButton label="Reset all positions" onClick={k["edit.resetPositions"].run} disabled={!k["edit.resetPositions"].enabled} className="hidden sm:inline-grid">
           <RotateCcw size={14} aria-hidden />
         </ToolButton>
       </div>
 
       <Position />
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
         <StepTabs projectId={projectId} variant="editor" className="hidden lg:block" />
-        <ToolSeparator className="hidden lg:block" />
+        <StepMenu projectId={projectId} className="lg:hidden" />
+        <ToolSeparator className="hidden sm:block" />
         <span className="hidden min-w-[7.5rem] text-right text-[11px] text-ink-3 sm:inline" aria-live="polite">
           {label}
         </span>
         <Tooltip label={`Save  ${sc(k["file.save"])}`} side="bottom">
-          <EditorButton onClick={() => void save()} disabled={!ready || saving} className={cx(dirty && "border-brass text-brass-3")}>
+          <EditorButton onClick={() => void save()} disabled={!ready || saving} className={cx(dirty && "border-brass text-brass-3")} aria-label="Save">
             {saving ? <Spinner className="h-3 w-3" /> : <Save size={13} aria-hidden />}
-            Save
+            <span className="hidden sm:inline">Save</span>
           </EditorButton>
         </Tooltip>
-        <EditorButton variant="primary" onClick={k["nav.preview"].run} disabled={!k["nav.preview"].enabled}>
-          Continue to Preview
+        <EditorButton variant="primary" onClick={k["nav.preview"].run} disabled={!k["nav.preview"].enabled} aria-label="Continue to Preview">
+          <span className="hidden sm:inline">Continue to Preview</span>
+          <span className="sm:hidden">Preview</span>
           <ArrowRight size={13} aria-hidden />
         </EditorButton>
       </div>

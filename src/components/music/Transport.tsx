@@ -25,16 +25,46 @@ export function PlaybackClock() {
   return null;
 }
 
+/** Widgets that use Space, the arrow keys and Home themselves (menus, sliders, lists, tabs, dialogs). */
+const WIDGETS =
+  '[role="menu"], [role="menubar"], [role="dialog"], [role="alertdialog"], [role="slider"], [role="listbox"], [role="radiogroup"], [role="tablist"], [role="spinbutton"], [role="combobox"], [role="tree"], [role="grid"]';
+/** Controls that Space activates. */
+const SPACE_CONTROLS = 'button, [role="button"], [role="switch"], [role="checkbox"], summary';
+
+function focusVisible(el: Element): boolean {
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Does the focused element handle this key itself? Then the playback
+ * shortcut must not also run (Space on Playback > Play would toggle twice).
+ */
+export function elementOwnsKey(el: Element | null, e: Pick<KeyboardEvent, "key" | "code">): boolean {
+  if (!el || el === document.body) return false;
+  const h = el as HTMLElement;
+  if (h.tagName === "INPUT" || h.tagName === "TEXTAREA" || h.tagName === "SELECT" || h.isContentEditable) return true;
+  if (el.closest(WIDGETS)) return true;
+  // A button reached with the keyboard keeps its Space. After a mouse click
+  // the button keeps focus too, but Space still means play/pause there.
+  if (e.code === "Space" && el.closest(SPACE_CONTROLS) && focusVisible(el)) return true;
+  return false;
+}
+
 /** Keyboard shortcuts shared by Sync, Customize and Preview. */
 export function PlaybackShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target instanceof Element ? e.target : null;
+      if (elementOwnsKey(target, e)) return;
       const p = usePlayback.getState();
       if (e.code === "Space") {
         e.preventDefault();
-        p.toggle();
+        if (!e.repeat) p.toggle();
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
         p.skip(e.shiftKey ? -30 : -5);
@@ -42,8 +72,9 @@ export function PlaybackShortcuts() {
         e.preventDefault();
         p.skip(e.shiftKey ? 30 : 5);
       } else if (e.key === "Home") {
+        e.preventDefault();
         p.seek(0);
-      } else if (e.key === "m" || e.key === "M") {
+      } else if ((e.key === "m" || e.key === "M") && !e.repeat) {
         p.toggleMute();
       }
     };
@@ -200,7 +231,8 @@ export function EditorTransport({
   const icon = "grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-sm)] text-ink-2 hover:bg-paper-3 hover:text-ink";
 
   return (
-    <div className={cx("flex h-12 items-center gap-1.5 px-4", className)}>
+    // narrow windows: the scrubber gets its own row under the buttons
+    <div className={cx("flex flex-wrap items-center gap-x-1.5 gap-y-1 px-4 py-1.5 sm:h-12 sm:flex-nowrap sm:py-0", className)}>
       <PlaybackClock />
       <PlaybackShortcuts />
       <Tooltip label="Back 5 s (←)">
@@ -230,10 +262,10 @@ export function EditorTransport({
           <Repeat size={14} />
         </button>
       </Tooltip>
-      <span className="mx-2 h-5 w-px shrink-0 bg-line" aria-hidden />
+      <span className="mx-2 hidden h-5 w-px shrink-0 bg-line sm:block" aria-hidden />
       <span className="tnum w-[4.6rem] shrink-0 text-[13px] font-semibold text-ink">{formatPrecise(time)}</span>
       <span className="tnum shrink-0 text-[11px] text-ink-3">/ {formatPrecise(duration)}</span>
-      <Waveform peaks={peaks} progress={duration ? time / duration : 0} onSeek={(f) => seek(f * duration)} height={26} className="mx-3 min-w-[120px] flex-1" />
+      <Waveform peaks={peaks} progress={duration ? time / duration : 0} onSeek={(f) => seek(f * duration)} height={26} className="order-last min-w-[120px] flex-1 basis-full sm:order-none sm:mx-3 sm:basis-auto" />
       {measureLabel && <span className="tnum hidden shrink-0 text-[11.5px] text-ink-2 md:inline">{measureLabel}</span>}
       <Tooltip label="Playback speed">
         <button

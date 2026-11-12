@@ -184,7 +184,7 @@ export function Stage({
       ref={wrapRef}
       className={cx("stage-frame aspect-video w-full", interactive && (locked ? "cursor-default" : "cursor-grab"), className)}
       tabIndex={interactive ? 0 : undefined}
-      role={interactive ? "application" : undefined}
+      role={interactive ? "group" : undefined}
       aria-label={interactive ? ariaLabel : undefined}
       data-editor-stage={interactive ? "" : undefined}
       onPointerDown={

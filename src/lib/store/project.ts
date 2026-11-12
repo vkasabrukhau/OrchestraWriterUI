@@ -10,11 +10,21 @@ import type { ProjectDto } from "@/shared/api";
 import { api, errorMessage } from "@/lib/api";
 import { peaksFromInfoMap } from "@/lib/audio";
 import { defaultPositions } from "@/lib/visualizer/seating";
+import { jsonEqual } from "@/lib/utils/equal";
 import { defaultDisplay } from "./display-defaults";
 
 export { defaultDisplay };
 
 export type ProjectLoadStatus = "idle" | "loading" | "ready" | "error" | "not-found";
+
+/**
+ * Options for display edits that arrive as a stream (a native color picker's
+ * input events, a held arrow key, a slider). Consecutive edits with the same
+ * `merge` key less than `MERGE_WINDOW_MS` apart become one undo step.
+ */
+export interface EditOptions {
+  merge?: string;
+}
 
 /** Debounces for autosave. Display edits are chatty (drags); sync edits are discrete. */
 export const DISPLAY_SAVE_DEBOUNCE_MS = 800;
@@ -55,16 +65,16 @@ interface ProjectState {
   setVisible: (id: string, visible: boolean) => void;
   setSectionVisible: (section: Section, visible: boolean) => void;
   soloPart: (id: string) => void;
-  setPartColor: (id: string, color: string | null) => void;
-  setSectionColor: (section: Section, color: string) => void;
+  setPartColor: (id: string, color: string | null, opts?: EditOptions) => void;
+  setSectionColor: (section: Section, color: string, opts?: EditOptions) => void;
   setPartSection: (id: string, section: Section) => void;
-  setPosition: (id: string, pos: PartPosition) => void;
+  setPosition: (id: string, pos: PartPosition, opts?: EditOptions) => void;
   resetPositions: () => void;
   resetColors: () => void;
   setShowLabels: (v: boolean) => void;
   setLabelMode: (m: DisplaySettings["labelMode"]) => void;
   setReducedMotion: (v: boolean) => void;
-  setGlowScale: (v: number) => void;
+  setGlowScale: (v: number, opts?: EditOptions) => void;
   /** put one part back on its default seat and drop its color override */
   resetPart: (id: string) => void;
   // display history (undo/redo of display edits only)
@@ -111,11 +121,16 @@ let past: DisplaySettings[] = [];
 let future: DisplaySettings[] = [];
 /** inside a gesture, only the first edit records a snapshot */
 let gesture: { recorded: boolean } | null = null;
+/** Edits with the same merge key closer together than this share one undo step. */
+export const MERGE_WINDOW_MS = 1000;
+/** the merge key and time of the last display edit */
+let lastMerge: { key: string; at: number } | null = null;
 
 function clearHistory() {
   past = [];
   future = [];
   gesture = null;
+  lastMerge = null;
 }
 
 function clearTimers() {
@@ -205,17 +220,20 @@ export const useProject = create<ProjectState>((set, get) => {
     }, ms);
   };
 
-  const editDisplay = (fn: (s: ProjectState) => DisplaySettings | null) => {
+  const editDisplay = (fn: (s: ProjectState) => DisplaySettings | null, opts?: EditOptions) => {
     set((s) => {
       const display = fn(s);
       if (!display) return s;
       editVersion++;
-      if (s.display && (!gesture || !gesture.recorded)) {
+      const now = Date.now();
+      const merged = Boolean(opts?.merge && lastMerge && lastMerge.key === opts.merge && now - lastMerge.at < MERGE_WINDOW_MS);
+      lastMerge = opts?.merge ? { key: opts.merge, at: now } : null;
+      if (s.display && !merged && (!gesture || !gesture.recorded)) {
         past.push(s.display);
         if (past.length > HISTORY_LIMIT) past.shift();
-        future = [];
         if (gesture) gesture.recorded = true;
       }
+      future = [];
       return { display, dirty: true, canUndo: past.length > 0, canRedo: false };
     });
     if (pendingKinds.has("display") || get().dirty) schedule("display", DISPLAY_SAVE_DEBOUNCE_MS);
@@ -228,6 +246,7 @@ export const useProject = create<ProjectState>((set, get) => {
     if (!current || !next) return;
     to.push(current);
     gesture = null;
+    lastMerge = null;
     editVersion++;
     set({ display: next, dirty: true, canUndo: past.length > 0, canRedo: future.length > 0 });
     schedule("display", DISPLAY_SAVE_DEBOUNCE_MS);
@@ -365,9 +384,12 @@ export const useProject = create<ProjectState>((set, get) => {
         const keepLocal = (kind: SaveKind) => editedMeanwhile || pendingKinds.has(kind) || inflightKinds.has(kind);
         if (!keepLocal("sync")) patch.sync = project.sync;
         if (!keepLocal("display")) {
-          patch.display = project.display ?? s.display ?? (infoMap ? defaultDisplay(infoMap) : null);
-          // the server copy may differ from what the snapshots were taken against
-          if (patch.display !== s.display) {
+          const server = project.display ?? s.display ?? (infoMap ? defaultDisplay(infoMap) : null);
+          // keep the local object when nothing changed, so selectors don't re-render
+          patch.display = server && s.display && jsonEqual(server, s.display) ? s.display : server;
+          // the snapshots were taken against the local copy; keep them while the
+          // server returns the same values (compared by value, not identity)
+          if (!jsonEqual(patch.display, s.display)) {
             clearHistory();
             patch.canUndo = false;
             patch.canRedo = false;
@@ -430,20 +452,21 @@ export const useProject = create<ProjectState>((set, get) => {
         return { ...s.display, visibleParts: only ? s.infoMap.instruments.map((i) => i.id) : [id] };
       }),
 
-    setPartColor: (id, color) =>
+    setPartColor: (id, color, opts) =>
       editDisplay((s) => {
         if (!s.display) return null;
         const colors = { ...s.display.colors };
         if (color) colors[id] = color;
         else delete colors[id];
         return { ...s.display, colors };
-      }),
+      }, opts),
 
-    setSectionColor: (section, color) => editDisplay((s) => (s.display ? { ...s.display, sectionColors: { ...s.display.sectionColors, [section]: color } } : null)),
+    setSectionColor: (section, color, opts) =>
+      editDisplay((s) => (s.display ? { ...s.display, sectionColors: { ...s.display.sectionColors, [section]: color } } : null), opts),
 
     setPartSection: (id, section) => editDisplay((s) => (s.display ? { ...s.display, sections: { ...s.display.sections, [id]: section } } : null)),
 
-    setPosition: (id, pos) => editDisplay((s) => (s.display ? { ...s.display, positions: { ...s.display.positions, [id]: pos } } : null)),
+    setPosition: (id, pos, opts) => editDisplay((s) => (s.display ? { ...s.display, positions: { ...s.display.positions, [id]: pos } } : null), opts),
 
     resetPositions: () =>
       editDisplay((s) => (s.display && s.infoMap ? { ...s.display, positions: defaultPositions(s.infoMap.instruments, s.display.sections) } : null)),
@@ -453,7 +476,7 @@ export const useProject = create<ProjectState>((set, get) => {
     setShowLabels: (showLabels) => editDisplay((s) => (s.display ? { ...s.display, showLabels } : null)),
     setLabelMode: (labelMode) => editDisplay((s) => (s.display ? { ...s.display, labelMode } : null)),
     setReducedMotion: (reducedMotion) => editDisplay((s) => (s.display ? { ...s.display, reducedMotion } : null)),
-    setGlowScale: (glowScale) => editDisplay((s) => (s.display ? { ...s.display, glowScale } : null)),
+    setGlowScale: (glowScale, opts) => editDisplay((s) => (s.display ? { ...s.display, glowScale } : null), opts),
 
     resetPart: (id) =>
       editDisplay((s) => {
@@ -468,6 +491,7 @@ export const useProject = create<ProjectState>((set, get) => {
     redo: () => restoreDisplay(future, past),
     beginGesture: () => {
       gesture = { recorded: false };
+      lastMerge = null;
     },
     endGesture: () => {
       gesture = null;

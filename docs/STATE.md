@@ -3,7 +3,7 @@
 Edited only on `main` (or in the PR that merges). Everything Claude needs to
 know about *where we are* lives here; *what we're building* lives in `docs/spec/`.
 
-Last updated: 2026-10-26 (branch `feat/backend-integration`, in review)
+Last updated: 2026-11-12 (branch `feat/customize-redesign`, in review)
 
 ## Status by requirement
 
@@ -12,7 +12,7 @@ Last updated: 2026-10-26 (branch `feat/backend-integration`, in review)
 | 1 | Upload score (MusicXML) + optional MP3 | in review | feat/backend-integration | Presigned S3 uploads; server parse-score job with the shared parser (`src/shared/score`); `.mxl` supported |
 | 2 | Sync score and audio (auto + manual, confidence) | in review | feat/backend-integration | Chroma DTW in a Web Worker (ADR 0009); manual markers merged and persisted; 56/56 bars within 150 ms on synthesized audio, 55/56 on the committed MP3 (ADR 0009) |
 | 3 | Information map | in review | feat/backend-integration | Parser + 20 quirk fixtures; stored as `info-map-<job>.json` in S3; types in `src/shared/info-map.ts` |
-| 4 | Customize display (one style, colors, positions, 64 parts) | in review | feat/backend-integration | Settings autosave to `projects.display` |
+| 4 | Customize display (one style, colors, positions, 64 parts) | in review | feat/customize-redesign | Desktop-style editor (ADR 0014): menu bar, tool bar, undo/redo, part lanes; settings autosave to `projects.display`; 64 parts at 60 fps on a fast machine |
 | 5 | Generate the visual | in review | feat/backend-integration | Canvas 2D renderer; labels drawn on canvas for export |
 | 6 | Export (project file, MP4) | in review | feat/backend-integration | Browser WebCodecs + mp4-muxer (ADR 0010); history in `app.exports` |
 | 7 | Playback (controls, measure highlight, click-to-play) | in review | feat/backend-integration | `<audio>` engine for recordings, Web Audio synth when there is no recording |
@@ -31,7 +31,7 @@ Status values: not started · in progress · in review · done · blocked
 | Library, Programs, Profile, Settings | wired | real data; decluttered |
 | Import | wired | real uploads, parse job, open `.ovproj` |
 | Sync | wired | auto-aligns on first visit; nudge default, ms advanced |
-| Customize | wired | Radix slider for glow size; later-phase rows removed |
+| Customize | wired | Editor chrome (ADR 0014); narrow layouts collapse the menus and steps |
 | Preview | wired | real audio, collapsible panels |
 | Export | wired | project file + MP4, history |
 
@@ -56,6 +56,8 @@ Status values: not started · in progress · in review · done · blocked
 - In "parts" label mode with 64 parts, 32 labels per side overlap (about
   17 px apart); a compact "name + dynamic" label for crowded columns is the
   follow-up.
+- While playing, Preview re-renders React work every frame: with 64 parts at
+  4× CPU throttle it runs about 10 fps (Customize 18). Needs a perf pass.
 - Better Auth's production rate limit trusts a client-supplied
   `x-forwarded-for`; set `advanced.ipAddress` for the App Runner proxy.
 

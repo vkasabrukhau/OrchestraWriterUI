@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
+import { Menu, MenuItem } from "@/components/ui/Menu";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useProject } from "@/lib/store/project";
 import { cx } from "@/lib/utils/format";
@@ -101,6 +102,51 @@ export function StepTabs({ projectId, variant = "nav", className }: { projectId:
           </li>
         ))}
       </ol>
+    </nav>
+  );
+}
+
+/**
+ * The steps as one dropdown, for editor toolbars too narrow for the tabs.
+ * Shows the current step and its position ("Customize 3/5").
+ */
+export function StepMenu({ projectId, className }: { projectId: string; className?: string }) {
+  const steps = useSteps(projectId);
+  const index = Math.max(0, steps.findIndex((s) => s.active));
+  const current = steps[index];
+  return (
+    <nav className={className} aria-label="Project steps">
+      <Menu
+        align="end"
+        sideOffset={6}
+        className="min-w-44"
+        trigger={
+          <button
+            type="button"
+            aria-label={`Step ${index + 1} of ${steps.length}: ${current.label}. Change step`}
+            className="flex h-7 items-center gap-1 rounded-[var(--radius-sm)] bg-brass-soft px-2 text-[12px] font-semibold text-brass-3 hover:bg-brass-soft/80"
+          >
+            {current.label}
+            <span className="tnum font-normal text-ink-3">
+              {index + 1}/{steps.length}
+            </span>
+            <ChevronDown size={12} aria-hidden />
+          </button>
+        }
+      >
+        {steps.map((s) => (
+          <MenuItem
+            key={s.id}
+            href={s.enabled && !s.active ? `/projects/${projectId}/${s.id}` : undefined}
+            disabled={!s.enabled}
+            icon={<Check size={13} className={s.done ? "text-brass" : "invisible"} />}
+          >
+            <span className={cx(s.active && "font-semibold text-ink", s.skipped && "line-through decoration-ink-4")}>{s.label}</span>
+            {s.active && <span className="sr-only"> (current step)</span>}
+            {s.skipped && <span className="ml-auto text-[11px] text-ink-4">No recording</span>}
+          </MenuItem>
+        ))}
+      </Menu>
     </nav>
   );
 }

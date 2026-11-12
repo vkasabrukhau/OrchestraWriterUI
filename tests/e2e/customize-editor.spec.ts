@@ -42,7 +42,7 @@ test("the Customize editor selects, nudges, undoes, hides and solos parts", asyn
     : "Control";
 
   await test.step("arrow keys nudge the part while the stage has focus", async () => {
-    await page.getByRole("application", { name: /Orchestra stage/ }).focus();
+    await page.getByRole("group", { name: /Orchestra stage/ }).focus();
     for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowRight");
     await expect.poll(async () => Number(await posX.inputValue())).toBeCloseTo(startX + 3, 1);
   });
@@ -50,7 +50,7 @@ test("the Customize editor selects, nudges, undoes, hides and solos parts", asyn
   await test.step("Undo from the Edit menu and the keyboard, then Redo", async () => {
     await menu("Edit", "Undo");
     await expect.poll(async () => Number(await posX.inputValue())).toBeCloseTo(startX + 2, 1);
-    await page.getByRole("application", { name: /Orchestra stage/ }).focus();
+    await page.getByRole("group", { name: /Orchestra stage/ }).focus();
     await page.keyboard.press(`${mod}+z`);
     await expect.poll(async () => Number(await posX.inputValue())).toBeCloseTo(startX + 1, 1);
     await page.keyboard.press(`${mod}+Shift+z`);
@@ -60,7 +60,7 @@ test("the Customize editor selects, nudges, undoes, hides and solos parts", asyn
   await test.step("Parts menu hides the part; H shows it again", async () => {
     await menu("Parts", "Hide selected part");
     await expect(shownMeta).toHaveText(`Orchestra layout · ${DEMO.parts - 1} of ${DEMO.parts} parts shown`);
-    await page.getByRole("application", { name: /Orchestra stage/ }).focus();
+    await page.getByRole("group", { name: /Orchestra stage/ }).focus();
     await page.keyboard.press("h");
     await expect(shownMeta).toHaveText(`Orchestra layout · ${DEMO.parts} of ${DEMO.parts} parts shown`);
   });
@@ -82,10 +82,40 @@ test("the Customize editor selects, nudges, undoes, hides and solos parts", asyn
   });
 
   await test.step("Esc deselects and the stage settings come back", async () => {
-    await page.getByRole("application", { name: /Orchestra stage/ }).focus();
+    await page.getByRole("group", { name: /Orchestra stage/ }).focus();
     await page.keyboard.press("Escape");
     await expect(selected).toHaveCount(0);
     await expect(page.getByRole("region", { name: "Section colors" })).toBeVisible();
+  });
+
+  await test.step("Space on Playback > Play starts playback once", async () => {
+    const play = page.getByRole("button", { name: "Play", exact: true });
+    await expect(play).toBeVisible();
+    await menubar.getByRole("menuitem", { name: "Playback" }).click();
+    await page.getByRole("menu").getByRole("menuitem", { name: /^Play\b/ }).focus();
+    await page.keyboard.press("Space");
+    await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Pause", exact: true }).click();
+    await expect(play).toBeVisible();
+  });
+
+  await test.step("narrow windows keep the menus, the steps and a full-width stage", async () => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const compact = page.getByRole("menubar", { name: "Menu bar" });
+    await compact.getByRole("menuitem", { name: "Menu" }).click();
+    // one list, grouped under the menu names (no side menus to run off screen)
+    await expect(page.getByRole("group", { name: "Edit" }).getByRole("menuitem", { name: "Reset all positions" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+
+    await page.getByRole("button", { name: /^Step 3 of 5: Customize/ }).click();
+    await expect(page.getByRole("menuitem", { name: /^Preview/ })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    const stage = page.getByRole("group", { name: /Orchestra stage/ });
+    const box = (await stage.boundingBox())!;
+    expect(box.width).toBeGreaterThan(330);
+    await page.setViewportSize({ width: 1440, height: 900 });
   });
 
   await test.step("edits autosave, and Preview drops the editor surface", async () => {

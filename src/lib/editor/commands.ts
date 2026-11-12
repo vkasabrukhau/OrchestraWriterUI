@@ -9,7 +9,7 @@
  */
 
 export interface Shortcut {
-  /** `KeyboardEvent.key` (case-insensitive) or the digit/letter of `KeyboardEvent.code` */
+  /** `KeyboardEvent.key`, case-insensitive (with Alt, also the digit/letter of `KeyboardEvent.code`) */
   key: string;
   /** ⌘ on macOS, Ctrl elsewhere */
   mod?: boolean;
@@ -232,7 +232,12 @@ export function formatShortcut(s: Shortcut, mac = isMacPlatform()): string {
   return [s.mod && "Ctrl", s.alt && "Alt", shift && "Shift", key].filter(Boolean).join("+");
 }
 
-/** Does this keydown match the shortcut? Letters and digits also match by `code`, so ⌥1 works on macOS. */
+/**
+ * Does this keydown match the shortcut? Matches by `key`, so letters follow
+ * the user's keyboard layout (⌘Z is Z on AZERTY and Dvorak too). Only with
+ * Alt held does it fall back to the physical key (`code`): macOS's Option
+ * turns ⌥1 into "¡", and the shortcut should still work.
+ */
 export function matchesShortcut(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">, s: Shortcut, mac = isMacPlatform()): boolean {
   const mod = mac ? e.metaKey : e.ctrlKey;
   if (Boolean(s.mod) !== mod) return false;
@@ -242,6 +247,7 @@ export function matchesShortcut(e: Pick<KeyboardEvent, "key" | "code" | "metaKey
   if (mac ? e.ctrlKey : e.metaKey) return false;
   const want = s.key.toLowerCase();
   if (e.key.toLowerCase() === want) return true;
+  if (!e.altKey) return false;
   const code = e.code.startsWith("Key") ? e.code.slice(3).toLowerCase() : e.code.startsWith("Digit") ? e.code.slice(5) : null;
   return code === want;
 }

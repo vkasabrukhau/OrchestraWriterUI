@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useLayoutEffect, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { EditorChrome } from "@/components/editor/EditorChrome";
+import { useEditor } from "@/lib/store/editor";
+import { isEditorPath } from "./editor-steps";
 import { PlaybackSourceMount } from "@/components/music/PlaybackSourceMount";
 import { ProjectLoader } from "./ProjectLoader";
 import { WorkflowNav } from "./WorkflowNav";
-
-/** Steps that use the editor chrome (ADR 0014). Sync and Preview move here in a follow-up. */
-const EDITOR_STEPS = ["customize"];
 
 /**
  * The frame around a project's step pages. Editor steps get the menu bar and
@@ -17,9 +16,12 @@ const EDITOR_STEPS = ["customize"];
  */
 export function WorkflowFrame({ projectId, children }: { projectId: string; children: ReactNode }) {
   const pathname = usePathname();
-  const editor = EDITOR_STEPS.some((s) => pathname.endsWith("/" + s));
+  const editor = isEditorPath(pathname);
 
-  useEffect(() => {
+  // Layout effects run before the browser paints, so neither the old surface
+  // nor the previous project's selection and panels ever show. (A full page
+  // load already has the surface from the inline script in the root layout.)
+  useLayoutEffect(() => {
     if (!editor) return;
     const root = document.documentElement;
     root.dataset.surface = "editor";
@@ -27,6 +29,10 @@ export function WorkflowFrame({ projectId, children }: { projectId: string; chil
       delete root.dataset.surface;
     };
   }, [editor]);
+
+  useLayoutEffect(() => {
+    useEditor.getState().bind(projectId);
+  }, [projectId]);
 
   if (editor) {
     return (

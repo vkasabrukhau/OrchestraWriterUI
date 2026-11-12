@@ -3,6 +3,7 @@ import { Inter, Lora } from "next/font/google";
 import "./globals.css";
 import { SessionHydrator } from "@/lib/auth/SessionHydrator";
 import { ThemeSync } from "@/components/shell/ThemeSync";
+import { EDITOR_SURFACE_SCRIPT } from "@/components/shell/editor-steps";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { Toaster } from "@/components/ui/Toaster";
 
@@ -38,6 +39,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${inter.variable} ${lora.variable} h-full`} suppressHydrationWarning>
+      <head>
+        {/* editor pages (ADR 0014) get their surface tokens before first paint */}
+        <script dangerouslySetInnerHTML={{ __html: EDITOR_SURFACE_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         <SessionHydrator />
         <ThemeSync />

@@ -6,7 +6,7 @@ import type { DisplaySettings } from "@/shared/project-file";
 import type { InfoMap } from "@/shared/info-map";
 import { useProject } from "@/lib/store/project";
 import { usePlayback } from "@/lib/store/playback";
-import { useEditor, usePartActivity } from "@/lib/store/editor";
+import { useEditor, useEditorRequest, usePartActivity } from "@/lib/store/editor";
 import { useProjectTiming } from "@/lib/store/useProjectTiming";
 import { formatShortcut } from "@/lib/editor/commands";
 import { Stage } from "@/components/visualizer/Stage";
@@ -32,21 +32,18 @@ export function CustomizePage({ projectId }: { projectId: string }) {
       </div>
     );
   }
-  return <CustomizeEditor projectId={projectId} infoMap={infoMap} display={display} hasRecording={summary.hasRecording} />;
+  return <CustomizeEditor infoMap={infoMap} display={display} hasRecording={summary.hasRecording} />;
 }
 
 /**
  * The Customize editor (ADR 0014): instruments left, the stage with its
  * transport in the middle, properties right, part lanes along the bottom.
  */
-function CustomizeEditor({ projectId, infoMap, display, hasRecording }: { projectId: string; infoMap: InfoMap; display: DisplaySettings; hasRecording: boolean }) {
-  const bind = useEditor((s) => s.bind);
+function CustomizeEditor({ infoMap, display, hasRecording }: { infoMap: InfoMap; display: DisplaySettings; hasRecording: boolean }) {
   const panels = useEditor((s) => s.panels);
   const togglePanel = useEditor((s) => s.togglePanel);
   const selectedId = useEditor((s) => s.selectedId);
   const select = useEditor((s) => s.select);
-
-  useEffect(() => bind(projectId), [bind, projectId]);
 
   // the selection must point at a part that exists (the score can be replaced)
   useEffect(() => {
@@ -109,17 +106,15 @@ function StageArea({
   const locked = useEditor((s) => s.locked);
   const showSeating = useEditor((s) => s.showSeating);
   const showLegend = useEditor((s) => s.showLegend);
-  const fullscreenTick = useEditor((s) => s.fullscreen);
   const requestFullscreen = useEditor((s) => s.requestFullscreen);
   const frameRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (fullscreenTick === 0) return;
+  useEditorRequest("fullscreen", () => {
     const el = frameRef.current;
     if (!el) return;
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     else void el.requestFullscreen?.().catch(() => {});
-  }, [fullscreenTick]);
+  });
 
   const shown = display.visibleParts.length;
 
@@ -142,10 +137,11 @@ function StageArea({
           </>
         }
       />
-      <div ref={frameRef} className="relative flex min-h-[240px] flex-1 flex-col bg-paper-3 [&:fullscreen]:bg-stage">
-        {/* fits the 16:9 stage inside whatever space the panels leave */}
-        <div className="grid min-h-0 flex-1 place-items-center p-4 [container-type:size] lg:p-5">
-          <div className="relative" style={{ width: "min(100cqw, calc(100cqh * 16 / 9))" }}>
+      <div ref={frameRef} className="relative flex flex-1 flex-col bg-paper-3 lg:min-h-[240px] [&:fullscreen]:bg-stage">
+        {/* stacked (below lg) the column has no fixed height, so the stage takes the full width;
+            side by side and in full screen it fits the 16:9 stage inside the space left over */}
+        <div className="grid min-h-0 flex-1 place-items-center p-4 lg:p-5 lg:[container-type:size] [:fullscreen>&]:[container-type:size]">
+          <div className="relative w-full lg:w-[min(100cqw,calc(100cqh*16/9))] [:fullscreen_&]:w-[min(100cqw,calc(100cqh*16/9))]">
             <Stage
               infoMap={infoMap}
               display={display}

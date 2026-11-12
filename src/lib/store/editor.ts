@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { create } from "zustand";
 import type { Dynamic } from "@/shared/dynamics";
 
@@ -25,9 +26,13 @@ interface EditorState {
   search: string;
   filter: PartFilter;
   dialog: EditorDialog;
-  /** bumps when "Find instrument" runs so the search box can focus itself */
+  /**
+   * Bumps when "Find instrument" runs so the search box can focus itself.
+   * A request, not state: read it with `useEditorRequest`, which only reacts
+   * to bumps after mount, so a remount does not replay an old request.
+   */
   searchFocus: number;
-  /** bumps when "Full screen" runs; the stage area owns the element */
+  /** bumps when "Full screen" runs; the stage area owns the element (see `searchFocus`) */
   fullscreen: number;
   /** forget everything when the editor opens another project */
   bind: (projectId: string) => void;
@@ -74,6 +79,25 @@ export const useEditor = create<EditorState>((set, get) => ({
   focusSearch: () => set((s) => ({ searchFocus: s.searchFocus + 1, panels: { ...s.panels, instruments: true } })),
   requestFullscreen: () => set((s) => ({ fullscreen: s.fullscreen + 1 })),
 }));
+
+/**
+ * Runs `fn` each time the `searchFocus` or `fullscreen` counter bumps after
+ * this component mounted. The counters outlive the component, so reacting to
+ * their value in an effect would replay the last request on every remount.
+ */
+export function useEditorRequest(which: "searchFocus" | "fullscreen", fn: () => void) {
+  const ref = useRef(fn);
+  useEffect(() => {
+    ref.current = fn;
+  });
+  useEffect(
+    () =>
+      useEditor.subscribe((s, prev) => {
+        if (s[which] !== prev[which]) ref.current();
+      }),
+    [which],
+  );
+}
 
 /**
  * Which parts are sounding now and at which written dynamic (id → dynamic,

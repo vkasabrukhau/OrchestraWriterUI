@@ -18,7 +18,11 @@ export function useEditorCommands(projectId: string): Commands {
   const canRedo = useProject((s) => s.canRedo);
   const display = useProject((s) => s.display);
   const partCount = useProject((s) => s.infoMap?.instruments.length ?? 0);
-  const editor = useEditor();
+  const selectedId = useEditor((s) => s.selectedId);
+  const panels = useEditor((s) => s.panels);
+  const showSeating = useEditor((s) => s.showSeating);
+  const showLegend = useEditor((s) => s.showLegend);
+  const locked = useEditor((s) => s.locked);
   const playing = usePlayback((s) => s.playing);
   const loop = usePlayback((s) => s.loop);
   const muted = usePlayback((s) => s.muted);
@@ -28,7 +32,8 @@ export function useEditorCommands(projectId: string): Commands {
   return useMemo(() => {
     const p = useProject.getState();
     const play = usePlayback.getState();
-    const sel = editor.selectedId;
+    const editor = useEditor.getState();
+    const sel = selectedId;
     const visible = display?.visibleParts ?? [];
     return buildCommands({
       ready,
@@ -40,12 +45,12 @@ export function useEditorCommands(projectId: string): Commands {
       selectedHasColor: sel ? Boolean(display?.colors[sel]) : false,
       soloed: visible.length === 1 ? visible[0] : null,
       allVisible: visible.length >= partCount,
-      panels: editor.panels,
+      panels,
       showLabels: display?.showLabels ?? true,
       labelMode: display?.labelMode ?? "sections",
-      showSeating: editor.showSeating,
-      showLegend: editor.showLegend,
-      locked: editor.locked,
+      showSeating,
+      showLegend,
+      locked,
       theme,
       reducedMotion: display?.reducedMotion ?? false,
       playing,
@@ -103,7 +108,7 @@ export function useEditorCommands(projectId: string): Commands {
         },
       },
     });
-  }, [router, projectId, ready, dirty, canUndo, canRedo, display, partCount, editor, playing, loop, muted, rate, theme]);
+  }, [router, projectId, ready, dirty, canUndo, canRedo, display, partCount, selectedId, panels, showSeating, showLegend, locked, playing, loop, muted, rate, theme]);
 }
 
 function isTyping(el: Element | null): boolean {
@@ -111,6 +116,9 @@ function isTyping(el: Element | null): boolean {
   const h = el as HTMLElement;
   return h.tagName === "INPUT" || h.tagName === "TEXTAREA" || h.tagName === "SELECT" || h.isContentEditable;
 }
+
+/** Each arrow-key press starts a new undo step; its auto-repeats join it. */
+let nudgePress = 0;
 
 /**
  * Editor shortcuts. Listens in the capture phase so that, while the stage has
@@ -141,7 +149,8 @@ export function useEditorShortcuts(commands: Commands) {
           const dx = e.key === "ArrowLeft" ? -NUDGE_STEP.x : e.key === "ArrowRight" ? NUDGE_STEP.x : 0;
           const dy = e.key === "ArrowUp" ? -NUDGE_STEP.y : e.key === "ArrowDown" ? NUDGE_STEP.y : 0;
           const p = display.positions[selectedId] ?? { x: 0.5, y: 0.5 };
-          useProject.getState().setPosition(selectedId, clampPosition({ x: p.x + dx * f, y: p.y + dy * f }));
+          if (!e.repeat) nudgePress++;
+          useProject.getState().setPosition(selectedId, clampPosition({ x: p.x + dx * f, y: p.y + dy * f }), { merge: `nudge:${selectedId}:${nudgePress}` });
           e.preventDefault();
           e.stopPropagation();
           return;
@@ -152,9 +161,18 @@ export function useEditorShortcuts(commands: Commands) {
         if (!c.shortcut || c.shortcutElsewhere || !matchesShortcut(e, c.shortcut)) continue;
         // while typing, only modifier shortcuts (and not ⌘Z, which belongs to the field)
         if (typing && (!c.shortcut.mod || c.id === "edit.undo" || c.id === "edit.redo")) return;
+        if (!c.enabled) {
+          // A disabled plain key passes through (Escape still closes a popover,
+          // a focused control still gets its letter). A disabled ⌘/Ctrl
+          // shortcut is still consumed so the browser's own ⌘S / ⌘O don't
+          // open a save or file dialog while the project loads.
+          if (!c.shortcut.mod) continue;
+          e.preventDefault();
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
-        if (c.enabled) c.run();
+        c.run();
         return;
       }
     };

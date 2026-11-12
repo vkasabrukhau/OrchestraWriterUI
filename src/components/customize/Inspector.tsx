@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Eye, EyeOff, RotateCcw } from "lucide-react";
 import type { InfoMap } from "@/shared/info-map";
 import type { DisplaySettings } from "@/shared/project-file";
@@ -80,7 +80,7 @@ function PartProperties({ infoMap, display, id }: { infoMap: InfoMap; display: D
         <div>
           <PropLabel htmlFor="part-hex">Part color</PropLabel>
           <FieldBox>
-            <ColorSwatch shape="square" value={color} onChange={(c) => setPartColor(id, c)} label={`${inst.name} color`} />
+            <ColorSwatch shape="square" value={color} onChange={(c) => setPartColor(id, c, { merge: `color:${id}` })} label={`${inst.name} color`} />
             <HexInput id="part-hex" value={color} onCommit={(hex) => setPartColor(id, hex)} />
           </FieldBox>
         </div>
@@ -97,7 +97,7 @@ function PartProperties({ infoMap, display, id }: { infoMap: InfoMap; display: D
             />
           ))}
         </div>
-        <p className="text-[10.5px] leading-relaxed text-ink-3">Tints keep the part inside its section’s color, so the section still reads at a glance.</p>
+        <p className="text-[10.5px] leading-relaxed text-ink-3">Tints stay close to the section’s color, so the section still reads at a glance and brightness still means the written dynamic.</p>
         <EditorButton onClick={() => setPartColor(id, null)} disabled={!custom} className="w-full">
           Use section color
         </EditorButton>
@@ -225,8 +225,6 @@ function PercentField({ id, label, value, onCommit }: { id: string; label: strin
 
 function StageProperties({ infoMap, display }: { infoMap: InfoMap; display: DisplaySettings }) {
   const { setSectionColor, resetColors, setShowLabels, setLabelMode, setReducedMotion, setGlowScale, beginGesture, endGesture } = useProject.getState();
-  // one undo step per slider drag
-  const sliding = useRef(false);
   const counts = SECTION_ORDER.map((section) => ({
     section,
     parts: infoMap.instruments.filter((i) => (display.sections[i.id] ?? i.section) === section).length,
@@ -270,7 +268,7 @@ function StageProperties({ infoMap, display }: { infoMap: InfoMap; display: Disp
           {counts.map(({ section, parts }) => (
             <li key={section} className="flex items-center justify-between text-[12px]">
               <span className="flex items-center gap-2.5 text-ink">
-                <ColorSwatch shape="square" value={display.sectionColors[section]} onChange={(c) => setSectionColor(section, c)} label={`${section} color`} />
+                <ColorSwatch shape="square" value={display.sectionColors[section]} onChange={(c) => setSectionColor(section, c, { merge: `section-color:${section}` })} label={`${section} color`} />
                 {section}
               </span>
               <span className="tnum text-[10.5px] text-ink-3">
@@ -287,17 +285,8 @@ function StageProperties({ infoMap, display }: { infoMap: InfoMap; display: Disp
           <PropLabel id="glow-size-label">Glow size</PropLabel>
           <Slider
             value={display.glowScale}
-            onChange={(v) => {
-              if (!sliding.current) {
-                sliding.current = true;
-                beginGesture();
-              }
-              setGlowScale(v);
-            }}
-            onCommit={() => {
-              sliding.current = false;
-              endGesture();
-            }}
+            // a drag (or a run of arrow presses) is one undo step
+            onChange={(v) => setGlowScale(v, { merge: "glow" })}
             min={0.6}
             max={1.4}
             step={0.05}

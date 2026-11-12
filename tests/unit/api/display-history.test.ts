@@ -22,7 +22,7 @@ vi.mock("@/lib/api", () => ({
 }));
 vi.mock("@/lib/audio", () => ({ peaksFromInfoMap: () => [0.3, 0.3] }));
 
-import { DISPLAY_SAVE_DEBOUNCE_MS, HISTORY_LIMIT, useProject } from "@/lib/store/project";
+import { DISPLAY_SAVE_DEBOUNCE_MS, HISTORY_LIMIT, MERGE_WINDOW_MS, useProject } from "@/lib/store/project";
 
 const infoMap: InfoMap = {
   instruments: [
@@ -160,6 +160,79 @@ describe("display undo/redo", () => {
     expect(s().canUndo).toBe(false);
     s().undo();
     expect(s().display!.glowScale).toBe(1);
+  });
+});
+
+describe("streamed edits (merge keys)", () => {
+  it("a color picker's input events become one undo step", () => {
+    const before = s().display!.colors.P1;
+    for (const c of ["#111111", "#222222", "#333333", "#444444"]) {
+      s().setPartColor("P1", c, { merge: "color:P1" });
+      vi.advanceTimersByTime(50);
+    }
+    expect(s().display!.colors.P1).toBe("#444444");
+    s().undo();
+    expect(s().display!.colors.P1).toBe(before);
+    expect(s().canUndo).toBe(false);
+  });
+
+  it("starts a new step after a pause, a different key, or an undo", () => {
+    s().setGlowScale(1.1, { merge: "glow" });
+    s().setGlowScale(1.2, { merge: "glow" });
+    vi.advanceTimersByTime(MERGE_WINDOW_MS + 1);
+    s().setGlowScale(1.3, { merge: "glow" });
+    s().setPartColor("P1", "#123456", { merge: "color:P1" });
+    s().undo();
+    expect(s().display!.glowScale).toBe(1.3);
+    s().undo();
+    expect(s().display!.glowScale).toBe(1.2);
+    // after an undo the next edit with the same key is a fresh step
+    s().setGlowScale(0.8, { merge: "glow" });
+    s().undo();
+    expect(s().display!.glowScale).toBe(1.2);
+  });
+
+  it("an unmerged edit in between ends the run", () => {
+    s().setGlowScale(1.1, { merge: "glow" });
+    s().setShowLabels(false);
+    s().setGlowScale(1.2, { merge: "glow" });
+    s().undo();
+    expect(s().display!).toMatchObject({ glowScale: 1.1, showLabels: false });
+  });
+
+  it("merged edits still clear the redo stack", () => {
+    s().setGlowScale(1.1, { merge: "glow" });
+    s().setShowLabels(false);
+    s().undo();
+    expect(s().canRedo).toBe(true);
+    s().setGlowScale(1.2, { merge: "glow" });
+    expect(s().canRedo).toBe(false);
+  });
+});
+
+describe("refresh keeps the history", () => {
+  it("keeps undo when the server returns the same display (keys reordered by jsonb)", async () => {
+    s().setGlowScale(1.3);
+    await vi.advanceTimersByTimeAsync(DISPLAY_SAVE_DEBOUNCE_MS);
+    expect(s().dirty).toBe(false);
+    const local = s().display!;
+    // same values, different key order (Postgres jsonb does this)
+    const reordered = Object.fromEntries(Object.entries(structuredClone(local)).reverse()) as DisplaySettings;
+    api.getProject.mockResolvedValue(dto({ display: reordered }));
+    await s().refresh();
+    expect(s().canUndo).toBe(true);
+    expect(s().display).toBe(local);
+    s().undo();
+    expect(s().display!.glowScale).toBe(1);
+  });
+
+  it("clears undo when the server copy really changed", async () => {
+    s().setGlowScale(1.3);
+    await vi.advanceTimersByTimeAsync(DISPLAY_SAVE_DEBOUNCE_MS);
+    api.getProject.mockResolvedValue(dto({ display: { ...s().display!, glowScale: 0.7 } }));
+    await s().refresh();
+    expect(s().display!.glowScale).toBe(0.7);
+    expect(s().canUndo).toBe(false);
   });
 });
 
