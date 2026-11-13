@@ -19,6 +19,9 @@ const { api, router } = vi.hoisted(() => ({
   router: { push: vi.fn(), replace: vi.fn() },
 }));
 
+// the aligner experiment turns off auto-start; these tests cover the page without it
+vi.mock("./experiment/AlignerChoice", async (orig) => ({ ...(await orig<typeof import("./experiment/AlignerChoice")>()), REDLINE_EXPERIMENT: false }));
+
 vi.mock("@/lib/api", async () => {
   const registry = await import("@/lib/jobs/registry");
   api.getJob.mockImplementation(registry.getJob);
