@@ -1,5 +1,6 @@
 import { CHROMA_DTW_METHOD } from "./index";
 import { INTEGRATED_METHOD } from "./integrated";
+import { REDLINE_METHOD } from "./redline";
 import type { AlignMethod } from "./select";
 
 /**
@@ -9,7 +10,7 @@ import type { AlignMethod } from "./select";
  * AlignMethod and a case in runAlignment, register it here with style
  * "rigid", and write an ADR. Chroma DTW stays an internal fallback.
  */
-export type SyncStyle = "smooth" | "rigid";
+export type SyncStyle = "smooth" | "rigid" | "redline";
 
 export interface SyncMethod {
   id: AlignMethod;
@@ -20,6 +21,8 @@ export interface SyncMethod {
 
 export const SYNC_METHODS: readonly SyncMethod[] = [
   { id: INTEGRATED_METHOD, style: "smooth", label: "Smooth", description: "Tempo fitted to the recording" },
+  // redline experiment: picked in components/sync/experiment/AlignerChoice (not in SYNC_STYLES)
+  { id: REDLINE_METHOD, style: "redline", label: "Redline", description: "Coarse-to-fine DTW on note onsets" },
 ];
 
 export const SYNC_STYLES: Array<{ style: SyncStyle; label: string }> = [
@@ -35,5 +38,6 @@ export function methodForStyle(style: SyncStyle): SyncMethod | null {
 export function methodLabel(id: string): string {
   if (id === INTEGRATED_METHOD) return "Smooth";
   if (id === CHROMA_DTW_METHOD) return "fallback aligner";
+  if (id === REDLINE_METHOD) return "Redline";
   return id;
 }
