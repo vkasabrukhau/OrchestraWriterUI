@@ -320,6 +320,8 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
     saveDisplay,
 
     // processing
+    loadRecordingBuffer: (projectId, signal) => loadAudioBuffer(projectId, signal),
+
     async loadRecordingPeaks(projectId, signal) {
       const cached = peakCache.get(projectId);
       if (cached) return cached;

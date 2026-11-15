@@ -3,13 +3,21 @@
 import { useEffect, useRef } from "react";
 import type { InfoMap } from "@/shared/info-map";
 import { usePlayback } from "@/lib/store/playback";
-import { createRecordingEngine, createScoreSynthEngine, type AudioEngine } from "./engine";
+import { createBufferedRecordingEngine, createRecordingEngine, createScoreSynthEngine, type AudioEngine } from "./engine";
 
-/** What the transport should play: the uploaded recording (presigned URL) or the score itself. */
-export type PlaybackSource = { kind: "recording"; url: string } | { kind: "score"; infoMap: InfoMap } | null;
+/**
+ * What the transport should play: the uploaded recording (presigned URL, and
+ * when available a loader for its decoded audio, which plays sample-accurately)
+ * or the score itself.
+ */
+export type PlaybackSource =
+  | { kind: "recording"; url: string; loadBuffer?: () => Promise<AudioBuffer | null> }
+  | { kind: "score"; infoMap: InfoMap }
+  | null;
 
 export function createEngineFor(source: Exclude<PlaybackSource, null>): AudioEngine {
-  return source.kind === "recording" ? createRecordingEngine(source.url) : createScoreSynthEngine(source.infoMap);
+  if (source.kind === "score") return createScoreSynthEngine(source.infoMap);
+  return source.loadBuffer ? createBufferedRecordingEngine(source.url, source.loadBuffer) : createRecordingEngine(source.url);
 }
 
 /**
@@ -40,14 +48,18 @@ export function useAudioEngine(
   options: {
     /** returns a fresh recording URL when the current one stops working (expired presigned link) */
     refreshUrl?: () => Promise<string | null>;
+    /** the recording's decoded audio, for sample-accurate playback (null: stream the file) */
+    loadBuffer?: () => Promise<AudioBuffer | null>;
   } = {},
 ): { ready: boolean; error: string | null } {
   const kind = source?.kind ?? null;
   const url = source?.kind === "recording" ? source.url : null;
   const infoMap = source?.kind === "score" ? source.infoMap : null;
   const refreshRef = useRef(options.refreshUrl);
+  const loadBufferRef = useRef(options.loadBuffer);
   useEffect(() => {
     refreshRef.current = options.refreshUrl;
+    loadBufferRef.current = options.loadBuffer;
   });
   const engineRef = useRef<AudioEngine | null>(null);
   const lastRecoveryRef = useRef(0);
@@ -61,7 +73,8 @@ export function useAudioEngine(
         current.replaceSource(url);
         return;
       }
-      const cleanup = attachPlaybackSource({ kind, url });
+      const loadBuffer = loadBufferRef.current;
+      const cleanup = attachPlaybackSource({ kind, url, loadBuffer: loadBuffer ? () => loadBuffer() : undefined });
       const engine = usePlayback.getState().engine;
       engineRef.current = engine;
       engine?.setErrorHandler?.((message) => {

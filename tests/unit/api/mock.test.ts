@@ -25,6 +25,7 @@ const METHODS: Record<keyof ApiClient, true> = {
   saveDisplay: true,
   startAlignment: true,
   loadRecordingPeaks: true,
+  loadRecordingBuffer: true,
   exportMp4: true,
   exportProjectFile: true,
   openProjectFile: true,

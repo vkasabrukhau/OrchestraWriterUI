@@ -364,6 +364,11 @@ export const mockApi: ApiClient = {
     return null;
   },
 
+  async loadRecordingBuffer() {
+    // no decoded recording in the mock: playback streams the file
+    return null;
+  },
+
   async startAlignment(projectId, input = {}) {
     return simulated<AlignResult>(
       "align",
