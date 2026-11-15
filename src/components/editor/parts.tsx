@@ -42,7 +42,7 @@ export function PanelHeader({ title, meta, actions, id }: { title: string; meta?
   return (
     <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
       <div className="flex min-w-0 items-baseline gap-2">
-        <h2 id={id} className="truncate text-[12px] font-semibold text-ink">
+        <h2 id={id} className="truncate text-[12px] font-semibold uppercase tracking-wide text-ink-2">
           {title}
         </h2>
         {meta && <span className="tnum truncate text-[11px] text-ink-3">{meta}</span>}
@@ -104,7 +104,7 @@ export const EditorButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<H
       type="button"
       className={cx(
         "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 text-[12px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-45",
-        variant === "primary" && "bg-brass text-white hover:bg-brass-3",
+        variant === "primary" && "bg-ink text-paper shadow-sm hover:bg-ink-2",
         variant === "outline" && "border border-line bg-paper-2 text-ink hover:bg-paper-3",
         variant === "ghost" && "text-ink-2 hover:bg-paper-3 hover:text-ink",
         className,

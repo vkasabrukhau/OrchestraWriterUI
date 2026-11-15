@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Maximize2 } from "lucide-react";
 import type { DisplaySettings } from "@/shared/project-file";
 import type { InfoMap } from "@/shared/info-map";
 import { useProject } from "@/lib/store/project";
 import { usePlayback } from "@/lib/store/playback";
-import { useEditor, useEditorRequest, usePartActivity } from "@/lib/store/editor";
+import { useEditor, useEditorRequest, usePartActivity, type EditorPanel } from "@/lib/store/editor";
+import { PANEL_LIMITS, fitPanels, useEditorLayout } from "@/lib/store/editor-layout";
 import { useProjectTiming } from "@/lib/store/useProjectTiming";
 import { formatShortcut } from "@/lib/editor/commands";
+import { cx } from "@/lib/utils/format";
 import { Stage } from "@/components/visualizer/Stage";
 import { useWaveform } from "@/components/visualizer/useWaveform";
 import { EditorTransport } from "@/components/music/Transport";
@@ -16,6 +18,7 @@ import { PartLanes } from "@/components/music/PartLanes";
 import { NeedsScore } from "@/components/music/NeedsScore";
 import { barNumber } from "@/components/music/bars";
 import { PanelHeader, ToolButton } from "@/components/editor/parts";
+import { Splitter } from "@/components/ui/Splitter";
 import { InstrumentsPanel } from "./InstrumentsPanel";
 import { Inspector } from "./Inspector";
 
@@ -37,51 +40,107 @@ export function CustomizePage({ projectId }: { projectId: string }) {
 
 /**
  * The Customize editor (ADR 0022): instruments left, the stage with its
- * transport in the middle, properties right, part lanes along the bottom.
+ * transport in the middle, properties right, part lanes along the bottom,
+ * inside the editor window that `WorkflowFrame` draws (ADR 0023). Side by
+ * side (lg and up) the borders of the three panels drag to resize them, and
+ * the 16:9 stage refits the space left over.
  */
 function CustomizeEditor({ infoMap, display, hasRecording }: { infoMap: InfoMap; display: DisplaySettings; hasRecording: boolean }) {
   const panels = useEditor((s) => s.panels);
   const togglePanel = useEditor((s) => s.togglePanel);
   const selectedId = useEditor((s) => s.selectedId);
   const select = useEditor((s) => s.select);
+  const stored = useEditorLayout((s) => s.sizes);
+  const { resize, reset } = useEditorLayout.getState();
+  const gridRef = useRef<HTMLDivElement>(null);
+  const box = useSize(gridRef);
+  const { size, max } = fitPanels(stored, box, panels);
+
+  useEffect(() => useEditorLayout.getState().load(), []);
 
   // the selection must point at a part that exists (the score can be replaced)
   useEffect(() => {
     if (selectedId && !infoMap.instruments.some((i) => i.id === selectedId)) select(null);
   }, [infoMap, selectedId, select]);
 
-  const cols = [panels.instruments && "244px", "minmax(0,1fr)", panels.properties && "300px"].filter(Boolean).join(" ");
+  const cols = [panels.instruments && "var(--panel-instruments)", "minmax(0,1fr)", panels.properties && "var(--panel-properties)"].filter(Boolean).join(" ");
+  const style = {
+    gridTemplateColumns: cols,
+    "--panel-instruments": `${size.instruments}px`,
+    "--panel-properties": `${size.properties}px`,
+    "--panel-lanes": `${size.lanes}px`,
+  } as CSSProperties;
+
+  /** a border for `panel`: while dragging only the CSS variable changes, so nothing re-renders */
+  const splitter = (panel: EditorPanel, label: string, className: string, orientation: "vertical" | "horizontal" = "vertical", invert = false) => (
+    <Splitter
+      orientation={orientation}
+      value={size[panel]}
+      min={PANEL_LIMITS[panel][0]}
+      max={max[panel]}
+      onLive={(px) => gridRef.current?.style.setProperty(`--panel-${panel}`, `${px}px`)}
+      onCommit={(px) => {
+        gridRef.current?.style.setProperty(`--panel-${panel}`, `${px}px`);
+        resize(panel, px);
+      }}
+      onReset={() => reset(panel)}
+      label={label}
+      controls={`panel-${panel}`}
+      invert={invert}
+      className={cx("max-lg:hidden", className)}
+    />
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <h1 className="sr-only">Customize the display</h1>
-      <div className="flex min-h-0 flex-1 flex-col divide-y divide-line lg:grid lg:grid-rows-[minmax(0,1fr)] lg:divide-x lg:divide-y-0" style={{ gridTemplateColumns: cols }}>
+      <div ref={gridRef} className="flex min-h-0 flex-1 flex-col divide-y divide-line lg:grid lg:grid-rows-[minmax(0,1fr)] lg:divide-x lg:divide-y-0" style={style}>
         {panels.instruments && (
-          <div className="order-2 flex max-h-[70vh] min-h-0 flex-col lg:order-none lg:max-h-none">
+          <div id="panel-instruments" className="relative order-2 flex max-h-[70vh] min-h-0 flex-col lg:order-none lg:max-h-none">
             <InstrumentsPanel infoMap={infoMap} display={display} />
+            {splitter("instruments", "Resize instruments panel", "right-0 translate-x-1/2")}
           </div>
         )}
         <div className="order-1 flex min-h-0 min-w-0 flex-col lg:order-none">
           <StageArea infoMap={infoMap} display={display} hasRecording={hasRecording} />
           {panels.lanes && (
-            <PartLanes
-              infoMap={infoMap}
-              display={display}
-              selectedId={selectedId}
-              onSelect={(id) => select(selectedId === id ? null : id)}
-              onCollapse={() => togglePanel("lanes")}
-              className="h-[300px] shrink-0 border-t border-line lg:h-[34%] lg:max-h-[420px] lg:min-h-[180px]"
-            />
+            <div id="panel-lanes" className="relative flex h-[300px] shrink-0 flex-col border-t border-line lg:h-[var(--panel-lanes)]">
+              {splitter("lanes", "Resize part lanes", "top-0 -translate-y-1/2", "horizontal", true)}
+              <PartLanes
+                infoMap={infoMap}
+                display={display}
+                selectedId={selectedId}
+                onSelect={(id) => select(selectedId === id ? null : id)}
+                onCollapse={() => togglePanel("lanes")}
+                className="min-h-0 flex-1"
+              />
+            </div>
           )}
         </div>
         {panels.properties && (
-          <div className="order-3 flex min-h-0 flex-col lg:order-none">
+          <div id="panel-properties" className="relative order-3 flex min-h-0 flex-col lg:order-none">
+            {splitter("properties", "Resize properties panel", "left-0 -translate-x-1/2", "vertical", true)}
             <Inspector infoMap={infoMap} display={display} />
           </div>
         )}
       </div>
     </div>
   );
+}
+
+/** The element's size, kept current with a ResizeObserver (0 × 0 before the first measure). */
+function useSize(ref: RefObject<HTMLElement | null>) {
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setBox((b) => (b.width === el.clientWidth && b.height === el.clientHeight ? b : { width: el.clientWidth, height: el.clientHeight }));
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, [ref]);
+  return box;
 }
 
 function StageArea({

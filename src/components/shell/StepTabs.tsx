@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Check, ChevronDown } from "lucide-react";
-import { Menu, MenuItem } from "@/components/ui/Menu";
+import { Check } from "lucide-react";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useProject } from "@/lib/store/project";
 import { cx } from "@/lib/utils/format";
@@ -56,22 +55,19 @@ export function useSteps(projectId: string): StepState[] {
   });
 }
 
-/** One step link. `variant="editor"` is the compact tab used in the editor toolbar. */
-export function Step({ step: s, projectId, variant = "nav" }: { step: StepState; projectId: string; variant?: "nav" | "editor" }) {
-  const editor = variant === "editor";
+/** One step link, as shown in the workflow header. */
+export function Step({ step: s, projectId }: { step: StepState; projectId: string }) {
   const cls = cx(
-    "relative flex items-center gap-1.5 transition-colors",
-    editor ? "h-7 rounded-[var(--radius-sm)] px-2.5 text-[12px]" : "px-2.5 py-2 text-[13.5px] lg:px-3",
-    s.active ? (editor ? "bg-brass-soft font-semibold text-brass-3" : "font-medium text-ink") : s.enabled ? "text-ink-2 hover:text-ink" : "text-ink-4",
-    editor && !s.active && s.enabled && "hover:bg-paper-3",
+    "relative flex items-center gap-1.5 px-2.5 py-2 text-[13.5px] transition-colors lg:px-3",
+    s.active ? "font-medium text-ink" : s.enabled ? "text-ink-2 hover:text-ink" : "text-ink-4",
     s.skipped && "line-through decoration-ink-4",
   );
   const inner = (
     <>
-      {s.done && <Check size={editor ? 11 : 12} className="text-brass" aria-hidden />}
+      {s.done && <Check size={12} className="text-brass" aria-hidden />}
       {s.label}
       {s.done && <span className="sr-only"> (done)</span>}
-      {s.active && !editor && <span className="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-brass" aria-hidden />}
+      {s.active && <span className="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-brass" aria-hidden />}
     </>
   );
   if (!s.enabled) {
@@ -87,66 +83,5 @@ export function Step({ step: s, projectId, variant = "nav" }: { step: StepState;
     <Link href={`/projects/${projectId}/${s.id}`} className={cls} aria-current={s.active ? "step" : undefined}>
       {inner}
     </Link>
-  );
-}
-
-/** The step list as a navigation landmark. */
-export function StepTabs({ projectId, variant = "nav", className }: { projectId: string; variant?: "nav" | "editor"; className?: string }) {
-  const steps = useSteps(projectId);
-  return (
-    <nav className={className} aria-label="Project steps">
-      <ol className="flex items-center gap-0.5">
-        {steps.map((s) => (
-          <li key={s.id}>
-            <Step step={s} projectId={projectId} variant={variant} />
-          </li>
-        ))}
-      </ol>
-    </nav>
-  );
-}
-
-/**
- * The steps as one dropdown, for editor toolbars too narrow for the tabs.
- * Shows the current step and its position ("Customize 3/5").
- */
-export function StepMenu({ projectId, className }: { projectId: string; className?: string }) {
-  const steps = useSteps(projectId);
-  const index = Math.max(0, steps.findIndex((s) => s.active));
-  const current = steps[index];
-  return (
-    <nav className={className} aria-label="Project steps">
-      <Menu
-        align="end"
-        sideOffset={6}
-        className="min-w-44"
-        trigger={
-          <button
-            type="button"
-            aria-label={`Step ${index + 1} of ${steps.length}: ${current.label}. Change step`}
-            className="flex h-7 items-center gap-1 rounded-[var(--radius-sm)] bg-brass-soft px-2 text-[12px] font-semibold text-brass-3 hover:bg-brass-soft/80"
-          >
-            {current.label}
-            <span className="tnum font-normal text-ink-3">
-              {index + 1}/{steps.length}
-            </span>
-            <ChevronDown size={12} aria-hidden />
-          </button>
-        }
-      >
-        {steps.map((s) => (
-          <MenuItem
-            key={s.id}
-            href={s.enabled && !s.active ? `/projects/${projectId}/${s.id}` : undefined}
-            disabled={!s.enabled}
-            icon={<Check size={13} className={s.done ? "text-brass" : "invisible"} />}
-          >
-            <span className={cx(s.active && "font-semibold text-ink", s.skipped && "line-through decoration-ink-4")}>{s.label}</span>
-            {s.active && <span className="sr-only"> (current step)</span>}
-            {s.skipped && <span className="ml-auto text-[11px] text-ink-4">No recording</span>}
-          </MenuItem>
-        ))}
-      </Menu>
-    </nav>
   );
 }

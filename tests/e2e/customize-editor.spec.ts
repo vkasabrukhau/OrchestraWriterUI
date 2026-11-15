@@ -1,6 +1,6 @@
 import { DEMO, SCORE_FILE, expect, open, stepUrl, test } from "./helpers";
 
-/** The Customize editor (ADR 0022): menu bar, keyboard shortcuts, undo/redo and the step tabs. */
+/** The Customize editor (ADR 0022, 0023): workflow header, tool bar menus, keyboard shortcuts, undo/redo. */
 test("the Customize editor selects, nudges, undoes, hides and solos parts", async ({ page, account }) => {
   void account;
 
@@ -99,6 +99,58 @@ test("the Customize editor selects, nudges, undoes, hides and solos parts", asyn
     await expect(play).toBeVisible();
   });
 
+  await test.step("panel borders drag to resize; the stage refits and the sizes are remembered", async () => {
+    const stage = page.getByRole("group", { name: /Orchestra stage/ });
+    const panelBox = async (id: string) => (await page.locator(`#panel-${id}`).boundingBox())!;
+    /** drag a border's handle by (dx, dy) */
+    const drag = async (name: string, dx: number, dy: number) => {
+      const h = (await page.getByRole("separator", { name }).boundingBox())!;
+      const x = h.x + h.width / 2;
+      const y = h.y + h.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + dx / 2, y + dy / 2);
+      await page.mouse.move(x + dx, y + dy);
+      await page.mouse.up();
+    };
+
+    // shortest lanes first, so the stage is limited by the column's width, not its height
+    await drag("Resize part lanes", 0, 400);
+    await expect.poll(async () => (await panelBox("lanes")).height).toBeCloseTo(120, -1);
+    const before = { instruments: (await panelBox("instruments")).width, properties: (await panelBox("properties")).width, stage: (await stage.boundingBox())!.width };
+    await drag("Resize instruments panel", 80, 0);
+    await expect.poll(async () => (await panelBox("instruments")).width).toBeCloseTo(before.instruments + 80, -1);
+    await drag("Resize properties panel", -60, 0);
+    await expect.poll(async () => (await panelBox("properties")).width).toBeCloseTo(before.properties + 60, -1);
+    await expect.poll(async () => (await stage.boundingBox())!.width).toBeLessThan(before.stage);
+
+    // taller lanes leave less height, so the 16:9 stage shrinks to fit
+    const lanes = (await panelBox("lanes")).height;
+    const stageNow = (await stage.boundingBox())!;
+    await drag("Resize part lanes", 0, -120);
+    await expect.poll(async () => (await panelBox("lanes")).height).toBeCloseTo(lanes + 120, -1);
+    await expect.poll(async () => (await stage.boundingBox())!.height).toBeLessThan(stageNow.height);
+    const after = (await stage.boundingBox())!;
+    expect(after.width / after.height).toBeCloseTo(16 / 9, 1);
+
+    // arrow keys on a focused border, and double-click resets it
+    const border = page.getByRole("separator", { name: "Resize instruments panel" });
+    await border.focus();
+    const widened = (await panelBox("instruments")).width;
+    await page.keyboard.press("ArrowLeft");
+    await expect.poll(async () => (await panelBox("instruments")).width).toBeCloseTo(widened - 16, 0);
+    await border.dblclick();
+    await expect.poll(async () => (await panelBox("instruments")).width).toBeCloseTo(before.instruments, 0);
+
+    // the other sizes survive a reload (per browser)
+    const kept = (await panelBox("properties")).width;
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Customize the display", level: 1 })).toBeAttached();
+    await expect.poll(async () => (await panelBox("properties")).width).toBeCloseTo(kept, 0);
+    await page.getByRole("separator", { name: "Resize properties panel" }).dblclick();
+    await page.getByRole("separator", { name: "Resize part lanes" }).dblclick();
+  });
+
   await test.step("narrow windows keep the menus, the steps and a full-width stage", async () => {
     await page.setViewportSize({ width: 390, height: 844 });
     const compact = page.getByRole("menubar", { name: "Menu bar" });
@@ -108,9 +160,12 @@ test("the Customize editor selects, nudges, undoes, hides and solos parts", asyn
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toHaveCount(0);
 
-    await page.getByRole("button", { name: /^Step 3 of 5: Customize/ }).click();
-    await expect(page.getByRole("menuitem", { name: /^Preview/ })).toBeVisible();
-    await page.keyboard.press("Escape");
+    // the workflow header's step list, as on the other steps
+    const steps = page.getByRole("navigation", { name: "Project steps" });
+    await expect(steps.getByRole("link", { name: "Customize" })).toHaveAttribute("aria-current", "step");
+    // Preview is not reached yet, so it is listed but not a link
+    await expect(steps.getByText("Preview", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue to Preview" })).toBeVisible();
 
     const stage = page.getByRole("group", { name: /Orchestra stage/ });
     const box = (await stage.boundingBox())!;

@@ -11,10 +11,11 @@ import { WorkflowMain } from "./WorkflowMain";
 import { WorkflowNav } from "./WorkflowNav";
 
 /**
- * The frame around a project's step pages. Editor steps get the menu bar and
- * tool bar, fill the window and set `html[data-surface="editor"]`; the other
- * steps keep the workflow header and `WorkflowMain` (Sync full width, the
- * rest in the centered page column).
+ * The frame around a project's step pages. Every step has the workflow
+ * header. Editor steps then fill the window with one bordered editor window
+ * (tool bar on top, like the Sync workspace) and set
+ * `html[data-surface="editor"]`; the other steps use `WorkflowMain` (Sync
+ * full width, the rest in the centered page column).
  */
 export function WorkflowFrame({ projectId, children }: { projectId: string; children: ReactNode }) {
   const pathname = usePathname();
@@ -39,11 +40,17 @@ export function WorkflowFrame({ projectId, children }: { projectId: string; chil
   if (editor) {
     return (
       <div className="flex min-h-dvh flex-col bg-paper lg:h-dvh lg:min-h-0 lg:overflow-hidden">
-        <EditorChrome projectId={projectId} />
-        <ProjectLoader projectId={projectId}>
-          <PlaybackSourceMount />
-          <main className="flex min-h-0 flex-1 flex-col">{children}</main>
-        </ProjectLoader>
+        <WorkflowNav projectId={projectId} />
+        {/* the same inset and border as the Sync workspace */}
+        <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-3 md:px-4">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-line bg-paper">
+            <EditorChrome projectId={projectId} />
+            <ProjectLoader projectId={projectId}>
+              <PlaybackSourceMount />
+              <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+            </ProjectLoader>
+          </div>
+        </div>
       </div>
     );
   }

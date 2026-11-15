@@ -311,7 +311,7 @@ export function EditorTransport({
           disabled={unavailable}
           aria-label={playing ? "Pause" : "Play"}
           aria-busy={loading || undefined}
-          className="mx-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brass text-white transition-transform hover:bg-brass-3 active:scale-95 disabled:opacity-40"
+          className="mx-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-ink text-paper shadow-sm transition-transform hover:bg-ink-2 active:scale-95 disabled:opacity-40"
         >
           {playing ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" className="translate-x-[1px]" />}
         </button>

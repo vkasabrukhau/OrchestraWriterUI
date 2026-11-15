@@ -1,7 +1,7 @@
 # 0022. Editor pages use a neutral "studio" surface; the stage stays dark
 
 Date: 2026-11-11
-Status: accepted
+Status: accepted (colors and header superseded by 0023, proposed)
 
 ## Context
 The Customize redesign (Figma "Customization Page Mockup", frame `3:6325`) aims

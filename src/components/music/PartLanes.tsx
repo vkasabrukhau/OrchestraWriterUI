@@ -184,7 +184,7 @@ export function PartLanes({
   return (
     <section className={cx("flex min-h-0 flex-col bg-paper", className)} aria-labelledby="lanes-title">
       <div className="flex h-9 shrink-0 items-center gap-3 border-b border-line px-4">
-        <h2 id="lanes-title" className="text-[12px] font-semibold text-ink">
+        <h2 id="lanes-title" className="text-[12px] font-semibold uppercase tracking-wide text-ink-2">
           Part lanes
         </h2>
         <span className="tnum hidden text-[11px] text-ink-3 sm:inline">
