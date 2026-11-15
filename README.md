@@ -18,9 +18,17 @@ npm run dev               # http://localhost:3000 (migrations run on boot)
 ```
 
 No `.env` is needed locally; `.env.example` lists every variable for
-production. Sign up with any email and password (8+ characters), then
-**New project** → drop `fixtures/scores/orchestra-demo.musicxml` and, if you
-want the Sync step, `fixtures/audio/orchestra-demo.mp3`.
+production. Sign up with any email and password (8+ characters).
+
+Every library starts with **Sample · Tchaikovsky 6 (Hallé)**: the first
+movement's score, the Hallé recording and a finished sync (no markers), ready
+at Customize. It is the shared baseline for manual testing. It is created once
+per user the first time the library loads (deleting it does not bring it back),
+from `fixtures/sample/`. Set `SAMPLE_PROJECT=off` to disable it.
+
+For a small project of your own: **New project** → drop
+`fixtures/scores/orchestra-demo.musicxml` and, if you want the Sync step,
+`fixtures/audio/orchestra-demo.mp3`.
 
 Design review without a backend: `NEXT_PUBLIC_API_MOCK=1 npm run dev`.
 
@@ -50,7 +58,7 @@ npm run build
 - `src/lib/` — api client, auth, stores, jobs, align, audio, export, visualizer.
 - `src/components/` — `ui` primitives (Radix), `music`, `visualizer`, one folder per screen.
 - `docs/` — spec, decisions (ADRs), plan, research, handoffs. `CLAUDE.md` holds the working rules.
-- `fixtures/` — demo score and recording, parser quirk fixtures (`npm run fixtures` regenerates the generated ones).
+- `fixtures/` — demo score and recording, parser quirk fixtures (`npm run fixtures` regenerates the generated ones), and `sample/` (the library's sample project).
 
 ## Deploying
 

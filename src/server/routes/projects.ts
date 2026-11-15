@@ -25,6 +25,8 @@ import {
   str,
 } from "./validate";
 import { MAX_AUDIO_SECONDS } from "../storage/limits";
+import { env } from "../config/env";
+import { ensureSampleProject } from "../services/sample-project";
 
 export const projectsRoutes = new Hono<AuthEnv>();
 
@@ -36,6 +38,8 @@ const MAX_PEAKS = 4_096;
 const projectId = (c: Parameters<typeof idParam>[0]) => idParam(c, "id", "Project");
 
 projectsRoutes.get("/", async (c) => {
+  // every library starts with the sample project (once per user)
+  if (env.sampleProject) await ensureSampleProject(c.get("userId"));
   return c.json({ projects: await projects.listProjects(c.get("userId")) });
 });
 
