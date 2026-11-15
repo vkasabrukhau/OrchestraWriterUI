@@ -1,3 +1,7 @@
+// TEMPORARY, REMOVE BEFORE AN OFFICIAL LAUNCH: team-testing aid only. The
+// Hallé recording is a commercial release and the score's license is unclear.
+// Removal checklist: README.md ("Temporary, remove before an official launch").
+//
 // The sample project: Tchaikovsky's Symphony No. 6, first movement, with the
 // Hallé recording and a finished sync, put in each user's library once so
 // teammates have a ready baseline for manual testing.

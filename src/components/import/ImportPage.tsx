@@ -450,7 +450,10 @@ function RecordingCard({ upload, phase, name }: { upload: ReturnType<typeof useU
 /** The sample score's file name, shown while it is copied and parsed. */
 export const SAMPLE_SCORE_NAME = "symphony-no-6-opus-74-1st-movement-tchaikovsky.mxl";
 
-/** One click to fill both slots with the team's testing baseline (Tchaikovsky 6 · Hallé). */
+/**
+ * One click to fill both slots with the team's testing baseline (Tchaikovsky 6 · Hallé).
+ * TEMPORARY, REMOVE BEFORE AN OFFICIAL LAUNCH (see README.md).
+ */
 function SampleFilesCard({ onUse, busy }: { onUse: () => void; busy: boolean }) {
   return (
     <section className="card-flat p-5" aria-labelledby="sample-files-title">
