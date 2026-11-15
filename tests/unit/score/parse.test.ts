@@ -375,4 +375,53 @@ describe("parseMusicXml: timing for the aligner", () => {
     if (!out.ok) throw new Error(out.error);
     expect(out.infoMap.timing?.fermatas).toEqual([{ start: 0.5, end: 1 }]);
   });
+
+  it("places directions at their <offset> (end-of-bar tempo and dynamics marks)", () => {
+    const { infoMap } = parseOk(Q + "direction-offset.musicxml");
+    expect(infoMap.timing?.tempo).toEqual([
+      { time: 0, bpm: 60 },
+      { time: 2, bpm: 30 },
+      { time: 6, bpm: 120 },
+    ]);
+    expect(timings(part(infoMap, "P1")).map(([, t]) => t)).toEqual([0, 1, 2, 4, 6, 6.5, 7]);
+    expect(infoMap.measures.map((m) => m.startTime)).toEqual([0, 6]);
+    expect(part(infoMap, "P1").notes.map((n) => n.dynamics)).toEqual(["f", "f", "f", "p", "p", "p", "p"]);
+  });
+
+  it("re-times a 12/8 part from its note types onto a shared 4/4 bar", () => {
+    const { infoMap } = parseOk(Q + "mixed-meter.musicxml");
+    expect(infoMap.measures.map((m) => m.startTime)).toEqual([0, 4]);
+    const horn = part(infoMap, "P2").notes;
+    const eighths = horn.filter((n) => n.pitch === 64);
+    expect(eighths).toHaveLength(11);
+    eighths.forEach((n, k) => {
+      expect(n.time).toBeCloseTo((k + 1) / 3, 5);
+      expect(n.duration).toBeCloseTo(1 / 3, 5);
+    });
+    // the 4/4 voice inside the 12/8 bar keeps its quarters
+    expect(horn.filter((n) => n.pitch === 60).map((n) => n.time)).toEqual([0, 1, 2, 3]);
+    expect(horn.find((n) => n.pitch === 65)?.time).toBe(4);
+    expect(infoMap.warnings.some((w) => /disagree/.test(w))).toBe(false);
+  });
+
+  it("emits per-staff dynamics (music21 scalars) and hairpins between the notes they span", () => {
+    const { infoMap } = parseOk(Q + "hairpins.musicxml");
+    const expression = infoMap.timing?.expression ?? [];
+    const staff1 = expression.find((e) => e.part === "P1" && e.staff === 1);
+    const staff2 = expression.find((e) => e.part === "P1" && e.staff === 2);
+    expect(staff1?.dynamics).toEqual([
+      { time: 0, scalar: 0.25 },
+      { time: 3, scalar: 0.7 },
+    ]);
+    expect(staff1?.hairpins).toEqual([
+      { start: 1, end: 2, crescendo: true },
+      { start: 4, end: 5, crescendo: false },
+      { start: 6, end: 7, crescendo: true },
+    ]);
+    expect(staff2?.dynamics).toEqual([{ time: 0, scalar: 0.45 }]);
+    expect(staff2?.hairpins).toEqual([]);
+    expect(part(infoMap, "P1").notes.filter((n) => n.staff === 2).map((n) => n.pitch)).toEqual([48, 50]);
+    expect(part(infoMap, "P2").notes[0].unpitched).toBe(true);
+    expect(part(infoMap, "P1").notes.every((n) => n.unpitched === undefined)).toBe(true);
+  });
 });

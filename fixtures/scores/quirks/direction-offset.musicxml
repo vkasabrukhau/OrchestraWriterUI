@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Directions written at the end of a bar with a negative <offset> (as some
+  exporters write a stepped ritardando): they belong at cursor + offset.
+  m1: quarter = 60; at the end of m1, <sound tempo="30"> with offset -2
+  (beat 3) and a p with offset -1 (beat 4). m2: <sound tempo="120"> at its start.
+  Note starts: 0, 1, 2, 4; m2 at 6 s, its quarters 0.5 s apart.
+-->
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Flute</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>2</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>60</per-minute></metronome></direction-type><sound tempo="60"/></direction>
+      <direction><direction-type><dynamics><f/></dynamics></direction-type></direction>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+      <note><pitch><step>F</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+      <direction><direction-type><words>rit.</words></direction-type><offset>-4</offset><sound tempo="30"/></direction>
+      <direction><direction-type><dynamics><p/></dynamics></direction-type><offset>-2</offset></direction>
+    </measure>
+    <measure number="2">
+      <direction><direction-type><words>a tempo</words></direction-type><sound tempo="120"/></direction>
+      <note><pitch><step>G</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+      <note><pitch><step>A</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+      <note><pitch><step>B</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>half</type></note>
+    </measure>
+  </part>
+</score-partwise>

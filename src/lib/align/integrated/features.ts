@@ -12,26 +12,30 @@
  *   novelty  "something changes here" from 2 s and 8 s chroma checkerboards
  *            plus loudness change, computed at 5 Hz
  *
- * Differences from the Python reference (it uses Sync Toolbox's IIR pitch
- * filterbank and librosa): recording pitch energy comes from a 186 ms Hann
- * STFT, and the score's loudness model reads the info map's per-note written
- * dynamics instead of music21 dynamics and hairpins.
+ * The recording's pitch energy is Sync Toolbox's IIR filterbank, ported
+ * exactly (filterbank.ts). The score side follows Sync Toolbox's
+ * df_to_pitch_features and the reference's score_envelope, reading written
+ * dynamics and hairpins per staff from `infoMap.timing.expression`.
+ * Deliberate difference: hairpins span the notes their own start and stop
+ * mark. In the reference, music21 pairs a wedge stop with the first open
+ * wedge of that number anywhere in the score, so once one wedge is left open
+ * every later hairpin in the part ends at the next one's stop.
  */
 import type { Dynamic } from "@/shared/dynamics";
-import type { InfoMap, StyleMarking } from "@/shared/info-map";
-import { RealFftPair, downsample, fft, gradient, interp, maximumFilter, nextPow2, percentile, uniformFilter } from "./signal";
+import type { InfoMap, Note, StyleMarking } from "@/shared/info-map";
+import { resampleTo } from "../redline/audio";
+import { estimateTuningCents, syncToolboxChroma } from "./filterbank";
+import { RealFftPair, downsample, gradient, interp, maximumFilter, nextPow2, percentile, uniformFilter } from "./signal";
 
 export const FEATURE_RATE = 50;
 export const PCS = 12;
 /** Sync Toolbox quantize_chroma defaults */
 const QUANT_STEPS = [0.4, 0.2, 0.1, 0.05];
 const QUANT_WEIGHT = 0.25;
-/** L1 norm below which a frame becomes the uniform vector (Sync Toolbox normalize_feature) */
+/** a chroma frame with no entry above this carries no harmonic evidence (Sync Toolbox quantize_chroma) */
 const NORM_THRESHOLD = 0.001;
 /** recording analysis rate (librosa.load(sr=22050) in the reference) */
 const ANALYSIS_RATE = 22050;
-/** samples in Sync Toolbox's 40 ms energy window at its 4410 Hz middle-register rate */
-const STMSP_WINDOW_SAMPLES = 0.04 * 4410;
 /** sounding MIDI range used for pitch features */
 const MIDI_LO = 21;
 const MIDI_HI = 108;
@@ -57,14 +61,27 @@ export type Tick = (fraction: number) => void;
 /* Shared steps                                                         */
 /* ------------------------------------------------------------------ */
 
-/** quantize_chroma(pitch_to_chroma(...)) on raw pitch-class energies, in place. */
+/**
+ * quantize_chroma(pitch_to_chroma(...)) on raw pitch-class energies, in place
+ * (Sync Toolbox): a frame with no entry above 0.001 becomes all zeros (no
+ * harmonic evidence); otherwise divide by the sum and add 0.25 per threshold
+ * 0.40 / 0.20 / 0.10 / 0.05 exceeded.
+ */
 export function quantizeChroma(raw: Float32Array, n: number): void {
   for (let j = 0; j < n; j++) {
     const o = j * PCS;
-    let l1 = 0;
-    for (let c = 0; c < PCS; c++) l1 += Math.abs(raw[o + c]);
+    let sum = 0;
+    let any = false;
     for (let c = 0; c < PCS; c++) {
-      const v = l1 < NORM_THRESHOLD ? 1 / PCS : Math.abs(raw[o + c]) / l1;
+      sum += raw[o + c];
+      if (raw[o + c] > NORM_THRESHOLD) any = true;
+    }
+    for (let c = 0; c < PCS; c++) {
+      if (!any) {
+        raw[o + c] = 0;
+        continue;
+      }
+      const v = raw[o + c] / sum;
       let q = 0;
       for (const step of QUANT_STEPS) if (v > step) q += QUANT_WEIGHT;
       raw[o + c] = q;
@@ -95,15 +112,19 @@ export function attackEnvelope(x: ArrayLike<number>): Float32Array {
 /* Score                                                                */
 /* ------------------------------------------------------------------ */
 
-/** Dynamic strength per written marking (music21-like volume scalars). */
+/**
+ * music21 Dynamic.volumeScalar per info-map dynamic, used when an info map
+ * predates `timing.expression` (the note's dynamic then stands in for the
+ * marks, and there are no hairpins).
+ */
 export const DYNAMIC_STRENGTH: Record<Dynamic, number> = {
   pp: 0.25,
   p: 0.35,
-  mp: 0.5,
-  mf: 0.65,
-  f: 0.75,
+  mp: 0.45,
+  mf: 0.55,
+  f: 0.7,
   ff: 0.85,
-  fff: 0.95,
+  fff: 0.9,
 };
 
 function accentFactor(style: StyleMarking | null): number {
@@ -112,76 +133,144 @@ function accentFactor(style: StyleMarking | null): number {
   return 1;
 }
 
+/** Python's round(): half to even. */
+function roundHalfEven(x: number): number {
+  const r = Math.round(x);
+  return Math.abs(x % 1) === 0.5 && r % 2 !== 0 ? r - 1 : r;
+}
+
 export interface ScoreFeatureOptions {
   /** semitones from written to sounding pitch per part id */
   transpose: Record<string, number>;
 }
 
+interface StaffModel {
+  notes: Note[];
+  dynamics: Array<{ time: number; scalar: number }>;
+  hairpins: Array<{ start: number; end: number; crescendo: boolean }>;
+}
+
+/** One loudness model per staff (music21 treats each staff as a part); old info maps: one per instrument. */
+function staffModels(infoMap: InfoMap): StaffModel[] {
+  const expression = infoMap.timing?.expression;
+  if (!expression) {
+    return infoMap.instruments.map((inst) => {
+      const dynamics: StaffModel["dynamics"] = [];
+      let last: number | null = null;
+      for (const nt of [...inst.notes].sort((a, b) => a.time - b.time)) {
+        const v = DYNAMIC_STRENGTH[nt.dynamics];
+        if (v !== last) dynamics.push({ time: nt.time, scalar: v });
+        last = v;
+      }
+      return { notes: inst.notes, dynamics, hairpins: [] };
+    });
+  }
+  const byId = new Map(infoMap.instruments.map((i) => [i.id, i]));
+  const covered = new Set<string>();
+  const out: StaffModel[] = expression.map((e) => {
+    covered.add(`${e.part}:${e.staff}`);
+    return { notes: (byId.get(e.part)?.notes ?? []).filter((nt) => (nt.staff ?? 1) === e.staff), dynamics: e.dynamics, hairpins: e.hairpins };
+  });
+  // notes on a staff with no expression entry still sound (strength 0.5)
+  for (const inst of infoMap.instruments) {
+    const rest = inst.notes.filter((nt) => !covered.has(`${inst.id}:${nt.staff ?? 1}`));
+    if (rest.length) out.push({ notes: rest, dynamics: [], hairpins: [] });
+  }
+  return out;
+}
+
 /**
- * Direct score features (no synthesis): pitch occupancy folded to chroma, and
- * the expected loudness / attack / rest profiles (section 6.3).
+ * Direct score features (no synthesis), as the reference builds them:
+ *
+ * - chroma: Sync Toolbox df_to_pitch_features with ignore_velocity — each
+ *   sounding pitch (unpitched percussion excluded) marks every 40 ms window
+ *   it overlaps with 1 (a unison doubled by several parts counts once),
+ *   folded to pitch classes and quantized;
+ * - level / attack / rest: score_envelope (section 6.3) per staff — written
+ *   dynamic marks hold from their position, hairpins ramp to the next mark
+ *   within 2 s (else ±0.2), chord tones form one attack, staccato halves the
+ *   sounding length, accents add a short boost.
  */
 export function scoreFeatures(infoMap: InfoMap, options: ScoreFeatureOptions): Omit<SyncFeatures, "novelty" | "noveltyValid"> {
   const rate = FEATURE_RATE;
   const n = Math.ceil(infoMap.duration * rate) + 1;
+  const times = Float64Array.from({ length: n }, (_, j) => j / rate);
+
+  // 1. chroma (df_to_pitch_features, step 20 ms, windows [(c−1)·20, (c+1)·20] ms)
+  const stepMs = (1 / rate) * 1000;
+  let lastEnd = 0;
+  const rows: Array<{ start: number; end: number; pitch: number }> = [];
+  for (const inst of infoMap.instruments) {
+    const shift = options.transpose[inst.id] ?? 0;
+    for (const nt of inst.notes) {
+      if (nt.unpitched || !(nt.duration > 0)) continue;
+      const pitch = nt.pitch + shift;
+      if (pitch < MIDI_LO || pitch > MIDI_HI) continue;
+      rows.push({ start: nt.time, end: nt.time + nt.duration, pitch });
+      lastEnd = Math.max(lastEnd, nt.time + nt.duration);
+    }
+  }
+  const pitchFrames = Math.ceil((lastEnd * 1000) / stepMs);
+  const occupied = new Uint8Array(Math.max(pitchFrames, n) * 128);
+  for (const r of rows) {
+    const c0 = Math.floor((1000 * r.start) / stepMs);
+    const c1 = Math.min(Math.floor((1000 * r.end) / stepMs) + 1, pitchFrames - 1);
+    for (let c = Math.max(0, c0); c <= c1; c++) occupied[c * 128 + r.pitch] = 1;
+  }
   const chroma = new Float32Array(n * PCS);
+  for (let j = 0; j < Math.min(n, pitchFrames); j++) {
+    for (let p = MIDI_LO; p <= MIDI_HI; p++) if (occupied[j * 128 + p]) chroma[j * PCS + (p % 12)] += 1;
+  }
+  quantizeChroma(chroma, n);
+
+  // 2. expected loudness, attacks and rests per staff
   const envelope = new Float64Array(n);
   const attacks = new Float64Array(n);
   const sounding = new Float64Array(n);
   const attackFrames = Math.max(1, Math.round(0.06 * rate));
   const accentFrames = Math.max(1, Math.round(0.08 * rate));
-
-  for (const inst of infoMap.instruments) {
-    const shift = options.transpose[inst.id] ?? 0;
-    const notes = [...inst.notes].filter((nt) => nt.duration > 0).sort((a, b) => a.time - b.time);
-
-    // pitch occupancy (every note counts once, velocity ignored)
-    for (const nt of notes) {
-      const pitch = nt.pitch + shift;
-      if (pitch < MIDI_LO || pitch > MIDI_HI) continue;
-      let j0 = Math.ceil(nt.time * rate - 1e-9);
-      let j1 = Math.ceil((nt.time + nt.duration) * rate - 1e-9) - 1;
-      if (j1 < j0) j0 = j1 = Math.floor(nt.time * rate);
-      const pc = ((pitch % 12) + 12) % 12;
-      for (let j = Math.max(0, j0); j <= Math.min(n - 1, j1); j++) chroma[j * PCS + pc] += 1;
-    }
-
-    // dynamic strength: the written dynamic of the latest note onset, 0.5 before the first
+  for (const staff of staffModels(infoMap)) {
+    const events = [...staff.dynamics].sort((a, b) => a.time - b.time || a.scalar - b.scalar);
     const strength = new Float64Array(n).fill(0.5);
-    for (const nt of notes) {
-      const j = Math.max(0, Math.min(n - 1, Math.ceil(nt.time * rate - 1e-9)));
-      strength.fill(DYNAMIC_STRENGTH[nt.dynamics], j);
+    for (const ev of events) {
+      for (let j = Math.max(0, Math.ceil(ev.time * rate - 1e-9) - 1); j < n; j++) if (times[j] >= ev.time) strength[j] = ev.scalar;
+    }
+    for (const h of [...staff.hairpins].sort((a, b) => a.start - b.start)) {
+      const { start: a, end: b } = h;
+      if (!(b > a)) continue;
+      const from = strength[Math.max(0, Math.min(roundHalfEven(a * rate), n - 1))];
+      const after = events.find((ev) => ev.time >= b && ev.time <= b + 2);
+      const to = after ? after.scalar : Math.max(0.05, Math.min(1, from + (h.crescendo ? 0.2 : -0.2)));
+      for (let j = Math.max(0, Math.floor(a * rate)); j < n && times[j] <= b; j++) if (times[j] >= a) strength[j] = from + ((to - from) * (times[j] - a)) / (b - a);
     }
 
-    // chord tones sharing an onset form one attack event
-    const events = new Map<number, { count: number; accent: number }>();
+    // chord tones (same onset and length) form one event, like a music21 chord
+    const chords = new Map<string, { time: number; end: number; count: number; style: StyleMarking | null }>();
+    for (const nt of staff.notes) {
+      const key = `${nt.time}:${nt.duration}:${nt.styleMarking ?? ""}`;
+      const c = chords.get(key);
+      if (c) c.count += 1;
+      else chords.set(key, { time: nt.time, end: nt.time + nt.duration, count: 1, style: nt.styleMarking });
+    }
     const activity = new Float64Array(n);
-    for (const nt of notes) {
-      const accent = accentFactor(nt.styleMarking);
-      let end = nt.time + nt.duration;
-      if (nt.styleMarking === "Staccato") end = nt.time + nt.duration * 0.5;
-      const lo = Math.max(0, Math.floor(nt.time * rate));
+    for (const c of chords.values()) {
+      const accent = accentFactor(c.style);
+      const end = c.style === "Staccato" ? c.time + (c.end - c.time) * 0.5 : c.end;
+      const lo = Math.max(0, Math.floor(c.time * rate));
       const hi = Math.min(n, Math.ceil(end * rate));
       for (let j = lo; j < hi; j++) {
-        activity[j] += 1;
-        sounding[j] += 1;
+        activity[j] += c.count;
+        sounding[j] += c.count;
       }
       if (hi > lo) {
-        const ev = events.get(lo) ?? { count: 0, accent: 1 };
-        ev.count += 1;
-        ev.accent = Math.max(ev.accent, accent);
-        events.set(lo, ev);
-        if (accent > 1) for (let j = lo; j < Math.min(hi, lo + accentFrames); j++) activity[j] += accent - 1;
+        const amplitude = Math.sqrt(c.count) * strength[lo] ** 2 * accent;
+        for (let k = 0; k < attackFrames && lo + k < n; k++) attacks[lo + k] += amplitude * (1 - k / attackFrames);
+        if (accent > 1) for (let j = lo; j < Math.min(hi, lo + accentFrames); j++) activity[j] += c.count * (accent - 1);
       }
-    }
-    for (const [lo, ev] of events) {
-      const amplitude = Math.sqrt(ev.count) * strength[lo] ** 2 * ev.accent;
-      for (let k = 0; k < attackFrames && lo + k < n; k++) attacks[lo + k] += amplitude * (1 - k / attackFrames);
     }
     for (let j = 0; j < n; j++) envelope[j] += Math.sqrt(activity[j]) * strength[j] ** 2;
   }
 
-  quantizeChroma(chroma, n);
   const rest = new Uint8Array(n);
   for (let j = 0; j < n; j++) rest[j] = sounding[j] === 0 ? 1 : 0;
   return { rate, n, chroma, level: scaleEnvelope(envelope), attack: attackEnvelope(attacks), rest };
@@ -190,52 +279,6 @@ export function scoreFeatures(infoMap: InfoMap, options: ScoreFeatureOptions): O
 /* ------------------------------------------------------------------ */
 /* Recording                                                            */
 /* ------------------------------------------------------------------ */
-
-/** Global tuning offset in semitones (−0.5…0.5) from spectral peaks. */
-export function estimateTuning(x: Float32Array, sr: number): number {
-  const size = nextPow2(Math.round(sr * 0.186));
-  const frames = Math.floor((x.length - size) / size);
-  if (frames < 1) return 0;
-  const step = Math.max(1, Math.floor(frames / 400));
-  const window = hann(size);
-  const re = new Float64Array(size);
-  const im = new Float64Array(size);
-  const k0 = Math.max(2, Math.ceil((100 * size) / sr));
-  const k1 = Math.min(size / 2 - 2, Math.floor((2000 * size) / sr));
-  let sx = 0;
-  let sy = 0;
-  for (let f = 0; f < frames; f += step) {
-    const start = f * size;
-    for (let i = 0; i < size; i++) {
-      re[i] = x[start + i] * window[i];
-      im[i] = 0;
-    }
-    fft(re, im);
-    let maxMag = 0;
-    const mag = new Float64Array(k1 + 2);
-    for (let k = k0 - 1; k <= k1 + 1; k++) {
-      mag[k] = Math.hypot(re[k], im[k]);
-      if (mag[k] > maxMag) maxMag = mag[k];
-    }
-    if (maxMag <= 0) continue;
-    for (let k = k0; k <= k1; k++) {
-      const m = mag[k];
-      if (m < 0.1 * maxMag || m <= mag[k - 1] || m < mag[k + 1]) continue;
-      const a = Math.log(mag[k - 1] + 1e-12);
-      const b = Math.log(m + 1e-12);
-      const c = Math.log(mag[k + 1] + 1e-12);
-      const den = a - 2 * b + c;
-      const offset = den !== 0 ? (0.5 * (a - c)) / den : 0;
-      const hz = ((k + offset) * sr) / size;
-      const midi = 69 + 12 * Math.log2(hz / 440);
-      const dev = midi - Math.round(midi);
-      sx += m * Math.cos(2 * Math.PI * dev);
-      sy += m * Math.sin(2 * Math.PI * dev);
-    }
-  }
-  if (sx === 0 && sy === 0) return 0;
-  return Math.atan2(sy, sx) / (2 * Math.PI);
-}
 
 function hann(size: number): Float64Array {
   const w = new Float64Array(size);
@@ -281,69 +324,35 @@ function melFilterbank(sr: number, size: number, nMels: number): MelBand[] {
   return bands;
 }
 
+/** Mono samples at 22050 Hz (the reference's librosa.load rate). */
+function toAnalysisRate(samples: Float32Array, sampleRate: number): Float32Array {
+  if (sampleRate === ANALYSIS_RATE) return samples;
+  const factor = sampleRate / ANALYSIS_RATE;
+  if (Number.isInteger(factor)) return downsample(samples, sampleRate, ANALYSIS_RATE).samples;
+  return resampleTo(samples, sampleRate, ANALYSIS_RATE);
+}
+
 /**
  * Recording features: tuned pitch-class energy at 50 Hz, RMS loudness and
  * mel spectral-flux attacks (librosa rms / onset_strength, hop 220 at 22050 Hz).
  */
 export function audioFeatures(samples: Float32Array, sampleRate: number, tick?: Tick): Omit<SyncFeatures, "novelty" | "noveltyValid"> & { tuning: number } {
-  const down = downsample(samples, sampleRate, ANALYSIS_RATE);
-  const x = down.samples;
-  const sr = down.sampleRate;
+  const x = toAnalysisRate(samples, sampleRate);
+  const sr = ANALYSIS_RATE;
   const rate = FEATURE_RATE;
-  const n = Math.floor((x.length * rate) / sr) + 1;
-  const tuning = estimateTuning(x, sr);
-  tick?.(0.05);
 
-  // 1. pitch-class energy, 186 ms Hann window centered on each 20 ms frame
-  const size = nextPow2(Math.round(sr * 0.186));
-  const window = hann(size);
-  let w2 = 0;
-  for (let i = 0; i < size; i++) w2 += window[i] * window[i];
-  // Sync Toolbox's STMSP sums squared filter output over a 2-hop (40 ms) window
-  // at the pitch band's own rate (4410 Hz for the middle register), so its
-  // 0.001 silence threshold sits near −50 dBFS. Mean-square power × that
-  // window length puts this STFT on the same scale.
-  const calib = (2 / (size * w2)) * STMSP_WINDOW_SAMPLES;
-  const binPc: number[] = [];
-  const binWeight: number[] = [];
-  const binIndex: number[] = [];
-  for (let k = 1; k < size / 2; k++) {
-    const hz = (k * sr) / size;
-    const midi = 69 + 12 * Math.log2(hz / 440) - tuning;
-    const nearest = Math.round(midi);
-    if (nearest < MIDI_LO || nearest > MIDI_HI) continue;
-    binIndex.push(k);
-    binPc.push(((nearest % 12) + 12) % 12);
-    binWeight.push(Math.cos(Math.PI * (midi - nearest)) ** 2);
+  // 1. pitch-class energy: Sync Toolbox's multirate elliptic filterbank (one
+  //    band per MIDI pitch, tuned in whole cents) summed over 40 ms windows,
+  //    folded and quantized exactly as the reference does (filterbank.ts)
+  let cents = 0;
+  try {
+    cents = estimateTuningCents(x, sr);
+  } catch {
+    cents = 0; // shorter than the tuning estimator's window
   }
-  const chroma = new Float32Array(n * PCS);
-  const pitchFft = new RealFftPair(size);
-  const frameA = new Float64Array(size);
-  const frameB = new Float64Array(size);
-  const powA = new Float64Array(size / 2 + 1);
-  const powB = new Float64Array(size / 2 + 1);
-  const fill = (frame: Float64Array, j: number) => {
-    const start = Math.round((j * sr) / rate) - size / 2;
-    for (let i = 0; i < size; i++) {
-      const s = start + i;
-      frame[i] = s >= 0 && s < x.length ? x[s] * window[i] : 0;
-    }
-  };
-  const fold = (pow: Float64Array, j: number) => {
-    const o = j * PCS;
-    for (let b = 0; b < binIndex.length; b++) chroma[o + binPc[b]] += pow[binIndex[b]] * calib * binWeight[b];
-  };
-  const report = Math.max(2, Math.floor(n / 40) & ~1);
-  for (let j = 0; j < n; j += 2) {
-    fill(frameA, j);
-    if (j + 1 < n) fill(frameB, j + 1);
-    else frameB.fill(0);
-    pitchFft.power(frameA, frameB, powA, powB);
-    fold(powA, j);
-    if (j + 1 < n) fold(powB, j + 1);
-    if (tick && j % report === 0) tick(0.05 + 0.6 * (j / n));
-  }
-  quantizeChroma(chroma, n);
+  tick?.(0.05);
+  const { n, chroma } = syncToolboxChroma(x, cents, tick ? (f) => tick(0.05 + 0.6 * f) : undefined);
+  const tuning = cents / 100;
 
   // 2. RMS and onset strength on a 220-sample hop (scaled for other rates)
   const hop = Math.max(1, Math.round((220 * sr) / 22050));
@@ -500,3 +509,4 @@ export function withNovelty(f: Omit<SyncFeatures, "novelty" | "noveltyValid">): 
   }
   return base;
 }
+
