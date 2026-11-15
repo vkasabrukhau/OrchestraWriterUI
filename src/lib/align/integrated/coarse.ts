@@ -72,9 +72,17 @@ class JumpTracker {
    * that row's band) and the column minima over rows ≤ i − 3.
    * `cell(r, j)` is the index of (r, j) in D, or −1 outside the band.
    */
-  nextRow(D: Float64Array, i: number, m: number, rowLo: number, rowHi: number, cell: (r: number, j: number) => number, bandOf?: (r: number) => [number, number]): void {
-    this.prefix.fill(Infinity);
-    this.prefixCol.fill(-1);
+  nextRow(
+    D: Float64Array,
+    i: number,
+    m: number,
+    rowLo: number,
+    rowHi: number,
+    cell: (r: number, j: number) => number,
+    bandOf?: (r: number) => [number, number],
+    upTo = m - 1,
+  ): void {
+    // only columns rowLo…upTo are read for this row (best() checks j − 3 ≥ rowLo, j ≤ upTo)
     let best = Infinity;
     let arg = -1;
     for (let j = rowLo; j <= rowHi; j++) {
@@ -86,7 +94,7 @@ class JumpTracker {
       this.prefix[j] = best;
       this.prefixCol[j] = arg;
     }
-    for (let j = rowHi + 1; j < m; j++) {
+    for (let j = rowHi + 1; j <= upTo; j++) {
       this.prefix[j] = best;
       this.prefixCol[j] = arg;
     }
@@ -283,7 +291,7 @@ export function bandedDtw(
   const from = jump ? new Float64Array(offset[n]) : null;
   for (let j = lo[0]; j <= hi[0]; j++) D[at(0, j)] = cost(0, j);
   for (let i = 1; i < n; i++) {
-    jump?.nextRow(D, i, m, lo[i - 1], hi[i - 1], at, (r) => [lo[r], hi[r]]);
+    jump?.nextRow(D, i, m, lo[i - 1], hi[i - 1], at, (r) => [lo[r], hi[r]], hi[i]);
     for (let j = lo[i]; j <= hi[i]; j++) {
       let best = Infinity;
       let step = 0;

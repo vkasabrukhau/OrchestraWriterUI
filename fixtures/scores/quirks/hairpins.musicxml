@@ -6,7 +6,10 @@
   stopped after note 3) followed by f; then a diminuendo whose start and stop
   sit in the same bar as the next one's (bar 2).
   Staff 2: its own mp; P2 has an unpitched snare note.
-  Expected staff 1 hairpins: [1, 2] crescendo, [4, 5] diminuendo, [6, 7] crescendo.
+  Bar 3: a crescendo over the whole bar, stopped at the start of bar 4 before
+  its first note (a hairpin to the barline): it ends at the barline.
+  Expected staff 1 hairpins: [1, 2] crescendo, [4, 5] diminuendo, [6, 7]
+  crescendo, [8, 12] crescendo.
 -->
 <score-partwise version="4.0">
   <part-list>
@@ -41,6 +44,14 @@
       <backup><duration>4</duration></backup>
       <note><pitch><step>D</step><octave>3</octave></pitch><duration>4</duration><voice>5</voice><type>whole</type><staff>2</staff></note>
     </measure>
+    <measure number="3">
+      <direction><direction-type><wedge type="crescendo" number="1"/></direction-type><staff>1</staff></direction>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+    </measure>
+    <measure number="4">
+      <direction><direction-type><wedge type="stop" number="1"/></direction-type><staff>1</staff></direction>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+    </measure>
   </part>
   <part id="P2">
     <measure number="1">
@@ -48,6 +59,12 @@
       <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>4</duration><voice>1</voice><type>whole</type></note>
     </measure>
     <measure number="2">
+      <note><rest/><duration>4</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+    <measure number="3">
+      <note><rest/><duration>4</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+    <measure number="4">
       <note><rest/><duration>4</duration><voice>1</voice><type>whole</type></note>
     </measure>
   </part>

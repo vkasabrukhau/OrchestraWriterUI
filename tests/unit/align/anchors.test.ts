@@ -233,6 +233,13 @@ describe("aligners with anchors on the warped demo recording", () => {
     const start = (bar: number) => d.sync.auto[bar - 1].startSec;
     expect(start(29)).toBeCloseTo(truthAt(29), 2);
     expect(start(30)).toBeCloseTo(after(30), 2);
+    // the fit's breaks are the DTW's jumps: one, at the splice
+    const breaks = (d.seed as typeof d.seed & { breaks: Array<[number, number]> }).breaks;
+    expect(breaks.length).toBeGreaterThanOrEqual(1);
+    for (const [a, b] of breaks) {
+      expect(b).toBeGreaterThan(infoMap.measures[27].startTime);
+      expect(a).toBeLessThan(infoMap.measures[30].startTime);
+    }
     // bar 40 follows the general pause, the aligner's known weak spot (about 0.2 s with or without markers; ADR 0014)
     for (let bar = 31; bar <= 45; bar++) if (bar !== 40) expect(Math.abs(start(bar) - after(bar))).toBeLessThan(0.15);
     for (let bar = 2; bar <= 28; bar++) expect(Math.abs(start(bar) - truthAt(bar))).toBeLessThan(0.15);
@@ -241,6 +248,8 @@ describe("aligners with anchors on the warped demo recording", () => {
   it("integrated: lands exactly on true anchors and stays as accurate", async () => {
     const markers = [marker(10, truthAt(10)), marker(30, truthAt(30))];
     const d = await alignIntegrated(infoMap, audio, { anchors: markerAnchors(infoMap, markers) });
+    // markers stretch the seed, but its ordinary DTW steps are never taken for jumps
+    expect((d.seed as typeof d.seed & { breaks: Array<[number, number]> }).breaks).toEqual([]);
     expect(d.sync.auto[9].startSec).toBeCloseTo(Math.round(truthAt(10) * 1000) / 1000, 3);
     expect(d.sync.auto[29].startSec).toBeCloseTo(Math.round(truthAt(30) * 1000) / 1000, 3);
     const errors = d.sync.auto.map((a, i) => Math.abs(a.startSec - truthAt(i + 1)));

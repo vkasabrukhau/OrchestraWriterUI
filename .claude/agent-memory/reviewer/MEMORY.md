@@ -4,3 +4,4 @@
 - [Sync data conventions](project_sync_data_conventions.md): additive fields keep v1, two position sources, adopt sets conf 100, Transport per-frame, AudioBuffer memory
 - [Sync revamp traps](project_sync_revamp_traps.md): marker bounds vs merge floor, chroma DTW pinned ends, range splice leaks, OSMD stamp vs seconds
 - [Owner intent priority](project_owner_intent_priority.md): criterion G (owner words) beats other criteria; watch fixes that trade owner asks away
+- [Integrated aligner traps](project_integrated_aligner_traps.md): slope jump-detect vs anchor warp, per-bar wedge stops, filterbank 190 MB, review in a worktree

@@ -417,6 +417,8 @@ describe("parseMusicXml: timing for the aligner", () => {
       { start: 1, end: 2, crescendo: true },
       { start: 4, end: 5, crescendo: false },
       { start: 6, end: 7, crescendo: true },
+      // stopped at the next barline, before that bar's first note
+      { start: 8, end: 12, crescendo: true },
     ]);
     expect(staff2?.dynamics).toEqual([{ time: 0, scalar: 0.45 }]);
     expect(staff2?.hairpins).toEqual([]);

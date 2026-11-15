@@ -20,6 +20,15 @@
  * computed with the AGM instead of cephes' polynomial, sums are not always in
  * numpy's order, the biquads run without fused multiply-adds, and the tuning
  * spectrum is summed in float64 after rounding to float32 like librosa does.
+ * The filter output between the two filtfilt passes is stored in float32
+ * (state stays float64); on the reference recording the quantized chroma is
+ * still identical to Sync Toolbox's.
+ *
+ * Ported from Sync Toolbox 1.4.2 (MIT, © 2021 Meinard Müller et al.,
+ * International Audio Laboratories Erlangen), libfmp 1.3.0 (MIT) and SciPy
+ * 1.18 signal / special routines (BSD-3-Clause, © 2001–2002 Enthought, Inc.,
+ * 2003 SciPy Developers). The algorithms, not the source text, are ported;
+ * the notices are kept here for attribution.
  */
 
 // ---------------------------------------------------------------------------
@@ -623,7 +632,7 @@ export function sosPadLength(sos: Float64Array): number {
  * sections' recurrences overlap in the CPU; same arithmetic as scipy's
  * _sosfilt (direct form II transposed).
  */
-function cascade(sos: Float64Array, zi: Float64Array, x0: number, buf: Float64Array, from: number, to: number, forward: boolean): void {
+function cascade(sos: Float64Array, zi: Float64Array, x0: number, buf: Float32Array | Float64Array, from: number, to: number, forward: boolean): void {
   const n = sos.length / 6;
   if (n === 4 || n === 5) {
     const b00 = sos[0], b01 = sos[1], b02 = sos[2], a01 = sos[4], a02 = sos[5];
@@ -714,7 +723,7 @@ function cascade(sos: Float64Array, zi: Float64Array, x0: number, buf: Float64Ar
  * the pad: the result is work[pad .. pad + x.length). A Float32Array input is
  * extended in float32 like numpy does.
  */
-export function sosfiltfiltInto(sos: Float64Array, x: Float32Array | Float64Array, work: Float64Array): number {
+export function sosfiltfiltInto(sos: Float64Array, x: Float32Array | Float64Array, work: Float32Array | Float64Array): number {
   const L = x.length;
   const edge = sosPadLength(sos);
   if (L <= edge) throw new RangeError(`The length of the input vector x must be greater than padlen, which is ${edge}.`);
@@ -781,7 +790,8 @@ export function pitchFeatures(x: Float32Array, cents: number, tick?: (fraction: 
 
   let maxPad = 0;
   for (let p = PITCH_MIN; p <= PITCH_MAX; p++) maxPad = Math.max(maxPad, sosPadLength(h.get(p)!));
-  const work = new Float64Array(L + 2 * maxPad);
+  // filter output between the two passes in float32 (state stays float64): half the memory of the longest band
+  const work = new Float32Array(L + 2 * maxPad);
   const pitch = new Float64Array(n * PITCH_COUNT);
   const startIdx = new Int32Array(n);
   const stopIdx = new Int32Array(n);

@@ -23,7 +23,7 @@
  */
 import type { Dynamic } from "@/shared/dynamics";
 import type { InfoMap, Note, StyleMarking } from "@/shared/info-map";
-import { resampleTo } from "../redline/audio";
+import { resampleTo } from "../resample";
 import { estimateTuningCents, syncToolboxChroma } from "./filterbank";
 import { RealFftPair, downsample, gradient, interp, maximumFilter, nextPow2, percentile, uniformFilter } from "./signal";
 
@@ -232,8 +232,15 @@ export function scoreFeatures(infoMap: InfoMap, options: ScoreFeatureOptions): O
   for (const staff of staffModels(infoMap)) {
     const events = [...staff.dynamics].sort((a, b) => a.time - b.time || a.scalar - b.scalar);
     const strength = new Float64Array(n).fill(0.5);
-    for (const ev of events) {
-      for (let j = Math.max(0, Math.ceil(ev.time * rate - 1e-9) - 1); j < n; j++) if (times[j] >= ev.time) strength[j] = ev.scalar;
+    // each mark holds until the next one (strength[times >= t] = v, applied in order)
+    const firstFrame = (t: number) => {
+      let j = Math.max(0, Math.ceil(t * rate - 1e-9) - 1);
+      while (j < n && times[j] < t) j++;
+      return j;
+    };
+    for (let e = 0; e < events.length; e++) {
+      const to = e + 1 < events.length ? firstFrame(events[e + 1].time) : n;
+      for (let j = firstFrame(events[e].time); j < to; j++) strength[j] = events[e].scalar;
     }
     for (const h of [...staff.hairpins].sort((a, b) => a.start - b.start)) {
       const { start: a, end: b } = h;

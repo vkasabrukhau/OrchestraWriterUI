@@ -61,7 +61,7 @@ export async function runSync(input: SyncFunctionInput): Promise<SyncFunctionOut
     if (changed.length > 0 && input.auto.length === result.auto.length) {
       const auto = localizeMarkerRun(input.auto, result.auto, changed);
       const averageConfidence = Math.round(auto.reduce((s, a) => s + a.confidence, 0) / auto.length);
-      return { auto, method: result.method, fellBack: false, diagnostics: result.diagnostics, averageConfidence };
+      return { auto, method: result.method, fellBack: result.method === CHROMA_DTW_METHOD, diagnostics: result.diagnostics, averageConfidence };
     }
     return { auto: result.auto, method: result.method, fellBack: result.method === CHROMA_DTW_METHOD, diagnostics: result.diagnostics, averageConfidence: result.averageConfidence };
   }

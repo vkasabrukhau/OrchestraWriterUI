@@ -130,7 +130,7 @@ export function broadMatch(score: SyncFeatures, audio: SyncFeatures, end: number
   let seed = pathMapping(match, s2.rate);
   const k = seed.score.length - 1;
   if (k >= 1 && seed.score[k] < end) {
-    const slope = (seed.recording[k] - seed.recording[k - 1]) / (seed.score[k] - seed.score[k - 1]);
+    const slope = tailSlope(seed);
     const finish = seed.recording[k] + slope * (end - seed.score[k]);
     if (finish <= (audio.n - 1) / audio.rate) {
       seed.score.push(end);
@@ -140,6 +140,17 @@ export function broadMatch(score: SyncFeatures, audio: SyncFeatures, end: number
   if (seed.score.length < 2) throw new Error("The broad match found too little of the score in the recording.");
   if (anchors.length) seed = anchorMapping(seed, anchors);
   return { match, seed };
+}
+
+/**
+ * Slope used to extend a path to the supported end: over its last 10 s of
+ * score (at least the last segment), so a final jump does not set it.
+ */
+function tailSlope(m: Mapping): number {
+  const k = m.score.length - 1;
+  let a = k - 1;
+  while (a > 0 && m.score[k] - m.score[a] < 10) a--;
+  return (m.recording[k] - m.recording[a]) / (m.score[k] - m.score[a]);
 }
 
 /** frames per second of the banded pass between the broad match and the joint fit */
@@ -155,7 +166,7 @@ export const REFINE_RADIUS_SEC = 4;
  * around its seed with tempo continuity, so it rarely leaves that basin.
  * Anchors fence the band as they fence the broad match.
  */
-export function refineSeed(score: SyncFeatures, audio: SyncFeatures, end: number, seed: Mapping, anchors: AlignAnchor[] = []): Mapping {
+export function refineSeed(score: SyncFeatures, audio: SyncFeatures, end: number, seed: Mapping, anchors: AlignAnchor[] = []): Mapping & { breaks: Array<[number, number]> } {
   const rate = REFINE_RATE;
   const s = downsampleFeatures(sliceFeatures(score, Math.round(end * score.rate) + 1), rate);
   const a = downsampleFeatures(audio, rate);
@@ -179,16 +190,24 @@ export function refineSeed(score: SyncFeatures, audio: SyncFeatures, end: number
         lo[i] = l;
         hi[i] = h;
       } else {
+        // the seed passes through every anchor, so this should not happen; keep the band bounded if it does
         lo[i] = fence.lo[i];
-        hi[i] = fence.hi[i];
+        hi[i] = Math.min(fence.hi[i], fence.lo[i] + 4 * radius);
       }
     }
   }
   const path = bandedDtw((i, j) => pairCost(ss, as, i, j), s.n, lo, hi, jumpPenalty(rate));
+  // the path's jumps, as score spans (a jump moves ≥ 3 frames on one clock and 1 on the other; DTW steps move ≤ 2)
+  const breaks: Array<[number, number]> = [];
+  for (let k = 0; k + 1 < path.rows.length; k++) {
+    const di = path.rows[k + 1] - path.rows[k];
+    const dj = path.cols[k + 1] - path.cols[k];
+    if (di >= 3 || dj >= 3) breaks.push([path.rows[k] / rate, path.rows[k + 1] / rate]);
+  }
   let mapping = pathMapping({ rows: path.rows, cols: path.cols, cost: path.cost, margin: null, startCol: path.cols[0], endCol: path.cols[path.cols.length - 1] }, rate);
   const k = mapping.score.length - 1;
   if (k >= 1 && mapping.score[k] < end) {
-    const slope = (mapping.recording[k] - mapping.recording[k - 1]) / (mapping.score[k] - mapping.score[k - 1]);
+    const slope = tailSlope(mapping);
     const finish = mapping.recording[k] + slope * (end - mapping.score[k]);
     if (finish <= (audio.n - 1) / audio.rate) {
       mapping.score.push(end);
@@ -196,7 +215,7 @@ export function refineSeed(score: SyncFeatures, audio: SyncFeatures, end: number
     }
   }
   if (anchors.length) mapping = anchorMapping(mapping, anchors);
-  return mapping;
+  return { ...mapping, breaks };
 }
 
 /** Full pipeline with intermediate results (used by tests and for debugging). */
@@ -265,6 +284,7 @@ export async function alignIntegrated(
     clock,
     protectedQuarters,
     anchors,
+    breaks: seed.breaks,
     check,
     onProgress: (f, message) => progress(0.55 + f * 0.37, message),
   });

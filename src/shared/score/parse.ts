@@ -441,7 +441,7 @@ function readPart(part: RawPart, partName: string, warnings: string[]): ReadPart
     // last note/rest read in this measure (a hairpin stop attaches to it)
     let lastEvent: EventAnchor | null = null;
     const w = out.length;
-    const onWedge = (type: string, number: string, staff: string) => {
+    const onWedge = (type: string, number: string, staff: string, atQ: number) => {
       if (type === "crescendo" || type === "diminuendo") {
         const wd: WrittenWedge = { crescendo: type === "crescendo", number, staff, complete: false, start: null, stop: null };
         wedges.push(wd);
@@ -450,7 +450,13 @@ function readPart(part: RawPart, partName: string, warnings: string[]): ReadPart
         const wd = wedges.find((x) => !x.complete && x.number === number);
         if (!wd) return;
         wd.complete = true;
+        // a stop before the bar's first note ends the hairpin at its own position (usually the barline)
         if (lastEvent) wd.stop = { w, at: lastEvent };
+        else {
+          const at: EventAnchor = { onsetQ: atQ, typeOnsetQ: null, voice: "" };
+          m.anchors.push(at);
+          wd.stop = { w, at };
+        }
       }
     };
 
@@ -714,7 +720,7 @@ function readDirection(
   m: WrittenMeasure,
   partName: string,
   warnings: string[],
-  onWedge?: (type: string, number: string, staff: string) => void,
+  onWedge?: (type: string, number: string, staff: string, atQ: number) => void,
 ) {
   let tempo: number | null = null;
   let jumpWarned = false;
@@ -724,7 +730,7 @@ function readDirection(
       pushDynamic(m, cursor, d);
       for (const e of d.children) m.marks.push({ offsetQ: cursor, staff, scalar: music21Scalar(e.tag === "other-dynamics" ? e.text : e.tag) });
     }
-    for (const wd of childrenOf(dt, "wedge")) onWedge?.(wd.attrs.type ?? "", wd.attrs.number ?? "", staff);
+    for (const wd of childrenOf(dt, "wedge")) onWedge?.(wd.attrs.type ?? "", wd.attrs.number ?? "", staff, cursor);
     for (const r of childrenOf(dt, "rehearsal")) {
       const mark = r.text.trim();
       if (mark && m.rehearsal === undefined) m.rehearsal = mark.slice(0, 40);

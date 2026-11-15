@@ -90,8 +90,11 @@ A jump costs 4 cost·s, plus 0.5 per skipped score row (no evidence), plus the c
 - **Exponents for the score attack/level model**: an exponent of 1 instead of 2 fixed Tchaikovsky bars 233–236 but was worse on Romeo and Juliet. It was superseded by the 10 Hz pass.
 
 ## Consequences
+- **Licenses**: `filterbank.ts` ports algorithms from Sync Toolbox 1.4.2 (MIT), libfmp 1.3.0 (MIT) and SciPy 1.18 (BSD-3-Clause). It adds no dependency; attribution is in the file header.
+- **`<offset>` follows music21**: offsets now move tempo and dynamics marks for display and generated playback too. The MusicXML spec ties an offset's playback effect to `sound="yes"`. Brightness timing therefore shifts slightly for marks written with an offset once a score is re-imported.
 - **Run time**: about 21 s for 18 minutes in Node, up from 14–17 s (the filterbank takes 11 s). The 10 Hz pass adds about 1 s.
-- **Memory**: jumps add an Int32 origin per broad-match cell (up to 32 MB at the 8 M cell limit) and a Float64 per band cell.
+- **Memory**: jumps add an Int32 origin per broad-match cell (up to 32 MB at the 8 M cell limit) and a Float64 per band cell. The filterbank holds the 22050 Hz signal, its two decimations, one float32 work buffer (about 95 MB for 18 minutes) and the pitch energies (38 MB).
+- **Breaks** passed to the fit are the banded DTW's actual jump steps, not slopes read from the seed. Marker re-timing stretches ordinary steps past 2×, and an independent review caught the earlier slope test flagging them.
 - **Re-import needed**: scores imported before this change keep their old info map (no direction offsets, no mixed-meter re-timing, no `timing.expression`). Re-import a score to get the fixed clock; the Tchaikovsky 6 clock was 36% too long.
 - **The parser fixes reach beyond sync**: generated playback and score-time positions now follow `<offset>` tempo and dynamics marks and mixed-meter bars.
 - **Confidence** is still the heuristic of ADR 0014. It is computed against the 10 Hz seed.
