@@ -5,7 +5,7 @@
  *
  *   npx tsx scripts/eval-real.ts SCORE.mxl RECORDING.mp3 [--ref measures.csv]
  *        [--method integrated-tempo|redline|chroma-dtw] [--out result.json]
- *        [--markers "bar:sec,bar:sec"]
+ *        [--markers "bar:sec,bar:sec"] [--rate 44100]  (decode rate; the app decodes at 44100)
  *
  * The reference CSV needs a measure column (`measure`) and a recording
  * column (`recording_sec` or `start`). Needs ffmpeg on PATH to decode.
@@ -75,7 +75,7 @@ async function main() {
   const infoMap = parsed.infoMap;
   console.log(`score: ${infoMap.instruments.length} parts, ${infoMap.measures.length} bars, ${infoMap.duration.toFixed(1)} s`);
   let t = performance.now();
-  const audio = decode(audioPath);
+  const audio = decode(audioPath, Number(arg("--rate") ?? 22050));
   console.log(`audio: ${audio.durationSec.toFixed(1)} s decoded in ${((performance.now() - t) / 1000).toFixed(1)} s`);
   const method = (arg("--method") ?? "integrated-tempo") as AlignMethod;
   const anchors: AlignAnchor[] = (arg("--markers") ?? "")
