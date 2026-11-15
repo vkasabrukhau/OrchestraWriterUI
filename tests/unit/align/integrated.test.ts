@@ -43,11 +43,13 @@ describe("integrated aligner on the warped demo recording", () => {
     expect(errors.reduce((s, e) => s + e, 0) / errors.length).toBeLessThan(0.04);
   });
 
-  it("improves on the broad 2 Hz match and accepts the joint fit", () => {
+  it("refines the broad 2 Hz match at 10 Hz and accepts the joint fit within the acoustic tolerance", () => {
     const d = detail.sync.diagnostics!;
     expect(d.accepted).toBe(true);
     expect(d.converged).toBe(true);
-    expect(d.acousticAfter).toBeLessThan(d.acousticBefore);
+    // the fit trades a little acoustic agreement for tempo continuity, never more than 0.02 (reference acceptance)
+    expect(d.acousticAfter).toBeLessThanOrEqual(d.acousticBefore + 0.02);
+    expect(detail.seed.score.length).toBeGreaterThan(detail.broadSeed.score.length);
     expect(d.maxShiftSec).toBeLessThanOrEqual(4);
     expect(detail.fit.stages.map((s) => s.costScaleSec)).toEqual([0.1, 0.04]);
   });

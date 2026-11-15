@@ -8,6 +8,7 @@
  *   recording ──audioFeatures──▶ tuned chroma · RMS · spectral flux ────────┤ + novelty
  *                                                                           ▼
  *   2 Hz joint cost ──subsequence DTW──▶ broad seed
+ *   10 Hz joint cost ──banded DTW (±4 s)──▶ refined seed
  *   50 Hz ±4 s corridor ──joint tempo + audio fit──▶ validated clock
  *   clock ──▶ measure starts + heuristic per-measure confidence
  *
@@ -20,9 +21,9 @@ import type { AlignAudio, AlignProgress, Aligner, SyncState } from "@/shared/syn
 import { soundingTranspose } from "@/shared/score/transpose";
 import { anchorColumnBounds, anchorMapping, cleanAnchors, type AlignAnchor } from "../anchors";
 import { finalizeStarts } from "../index";
-import { pathMapping, subsequenceDtw, type CoarseMatch } from "./coarse";
+import { bandedDtw, pathMapping, subsequenceDtw, type CoarseMatch } from "./coarse";
 import { integratedConfidences } from "./confidence";
-import { audioSide, costMatrix, scoreSide, type CueSide, type ScoreCueSide } from "./cost";
+import { audioSide, costMatrix, pairCost, scoreSide, type CueSide, type ScoreCueSide } from "./cost";
 import { FEATURE_RATE, audioFeatures, downsampleFeatures, scoreFeatures, withNovelty, type SyncFeatures } from "./features";
 import { optimizeMapping, scoreClock, type Mapping, type OptimizeResult, type ScoreClock } from "./optimize";
 import { interp } from "./signal";
@@ -44,6 +45,9 @@ export interface IntegratedDetail {
   score: SyncFeatures;
   audio: SyncFeatures;
   broad: CoarseMatch;
+  /** the 2 Hz broad match's mapping */
+  broadSeed: Mapping;
+  /** the 10 Hz banded refinement of it: the joint fit's seed */
   seed: Mapping;
   fit: OptimizeResult;
   clock: ScoreClock;
@@ -126,6 +130,63 @@ export function broadMatch(score: SyncFeatures, audio: SyncFeatures, end: number
   return { match, seed };
 }
 
+/** frames per second of the banded pass between the broad match and the joint fit */
+export const REFINE_RATE = 10;
+/** seconds either side of the broad path that the banded pass searches */
+export const REFINE_RADIUS_SEC = 4;
+
+/**
+ * A finer pass over the broad seed (not in the reference): the same joint
+ * cost and DTW steps at 10 Hz, inside ±4 s of the 2 Hz path. At 2 Hz the
+ * attacks and short rests that place a passage are averaged away, so the
+ * broad path can settle a beat or two off; the joint fit only searches ±4 s
+ * around its seed with tempo continuity, so it rarely leaves that basin.
+ * Anchors fence the band as they fence the broad match.
+ */
+export function refineSeed(score: SyncFeatures, audio: SyncFeatures, end: number, seed: Mapping, anchors: AlignAnchor[] = []): Mapping {
+  const rate = REFINE_RATE;
+  const s = downsampleFeatures(sliceFeatures(score, Math.round(end * score.rate) + 1), rate);
+  const a = downsampleFeatures(audio, rate);
+  const ss = scoreSide(s);
+  const as = audioSide(a);
+  const lo = new Int32Array(s.n);
+  const hi = new Int32Array(s.n);
+  const radius = REFINE_RADIUS_SEC * rate;
+  for (let i = 0; i < s.n; i++) {
+    const center = interp(i / rate, seed.score, seed.recording) * rate;
+    lo[i] = Math.max(0, Math.min(as.n - 1, Math.floor(center - radius)));
+    hi[i] = Math.max(lo[i], Math.min(as.n - 1, Math.ceil(center + radius)));
+  }
+  if (anchors.length) {
+    const cells = anchors.map((x) => ({ row: Math.round(x.scoreSec * rate), col: Math.round(x.sec * rate) })).filter((c) => c.row < ss.n && c.col < as.n);
+    const fence = anchorColumnBounds(cells, ss.n, as.n, COARSE_ANCHOR_TOLERANCE);
+    for (let i = 0; i < s.n; i++) {
+      const l = Math.max(lo[i], fence.lo[i]);
+      const h = Math.min(hi[i], fence.hi[i]);
+      if (h >= l) {
+        lo[i] = l;
+        hi[i] = h;
+      } else {
+        lo[i] = fence.lo[i];
+        hi[i] = fence.hi[i];
+      }
+    }
+  }
+  const path = bandedDtw((i, j) => pairCost(ss, as, i, j), s.n, lo, hi);
+  let mapping = pathMapping({ rows: path.rows, cols: path.cols, cost: path.cost, margin: null, startCol: path.cols[0], endCol: path.cols[path.cols.length - 1] }, rate);
+  const k = mapping.score.length - 1;
+  if (k >= 1 && mapping.score[k] < end) {
+    const slope = (mapping.recording[k] - mapping.recording[k - 1]) / (mapping.score[k] - mapping.score[k - 1]);
+    const finish = mapping.recording[k] + slope * (end - mapping.score[k]);
+    if (finish <= (audio.n - 1) / audio.rate) {
+      mapping.score.push(end);
+      mapping.recording.push(finish);
+    }
+  }
+  if (anchors.length) mapping = anchorMapping(mapping, anchors);
+  return mapping;
+}
+
 /** Full pipeline with intermediate results (used by tests and for debugging). */
 export async function alignIntegrated(
   infoMap: InfoMap,
@@ -170,7 +231,12 @@ export async function alignIntegrated(
   const rate = FEATURE_RATE;
   const end = Math.min(infoMap.duration, (Math.min(Math.floor(infoMap.duration * rate), score.n) - 1) / rate);
   const anchors = cleanAnchors(options.anchors ?? []).filter((a) => a.scoreSec <= end + 1e-6 && a.sec <= durationSec);
-  const { match, seed } = broadMatch(score, heard, end, anchors);
+  const broad = broadMatch(score, heard, end, anchors);
+  const match = broad.match;
+  progress(0.5, "Finding the score in the recording");
+  await nextTick();
+  // 2b. 10 Hz banded pass around the broad path (the fit's seed)
+  const seed = refineSeed(score, heard, end, broad.seed, anchors);
   progress(0.55, "Fitting tempo and audio together");
   await nextTick();
 
@@ -234,7 +300,7 @@ export async function alignIntegrated(
       ...(fit.reason ? { note: fit.reason } : {}),
     },
   };
-  return { sync, score, audio: heard, broad: match, seed, fit, clock, protectedQuarters };
+  return { sync, score, audio: heard, broad: match, broadSeed: broad.seed, seed, fit, clock, protectedQuarters };
 }
 
 function round4(v: number) {

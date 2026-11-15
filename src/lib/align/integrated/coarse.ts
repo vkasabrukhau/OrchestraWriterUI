@@ -128,3 +128,59 @@ export function pathMapping(match: CoarseMatch, rate: number): { score: number[]
   }
   return { score, recording };
 }
+
+/**
+ * Banded DTW with the same steps and weights as `subsequenceDtw`, for a
+ * finer pass around an earlier path: row i may only use columns
+ * lo[i]…hi[i]. Only band cells are stored, so long pieces stay small. The
+ * path starts anywhere in row 0's band and ends at the cheapest column of
+ * the last row (accumulated cost / rows). `cost(i, j)` is read once per cell.
+ */
+export function bandedDtw(cost: (i: number, j: number) => number, n: number, lo: Int32Array, hi: Int32Array): { rows: Int32Array; cols: Int32Array; cost: number } {
+  if (n < 1) throw new Error("No frames to match.");
+  const offset = new Int32Array(n + 1);
+  for (let i = 0; i < n; i++) offset[i + 1] = offset[i] + Math.max(0, hi[i] - lo[i] + 1);
+  const D = new Float64Array(offset[n]).fill(Infinity);
+  const steps = new Uint8Array(offset[n]);
+  const at = (i: number, j: number) => (j < lo[i] || j > hi[i] ? -1 : offset[i] + j - lo[i]);
+  for (let j = lo[0]; j <= hi[0]; j++) D[at(0, j)] = cost(0, j);
+  for (let i = 1; i < n; i++) {
+    for (let j = lo[i]; j <= hi[i]; j++) {
+      let best = Infinity;
+      let step = 0;
+      let c = NaN;
+      for (let k = 0; k < STEPS.length; k++) {
+        const [di, dj, w] = STEPS[k];
+        if (i < di || j < dj) continue;
+        const prev = at(i - di, j - dj);
+        if (prev < 0 || !Number.isFinite(D[prev])) continue;
+        if (Number.isNaN(c)) c = cost(i, j);
+        const v = D[prev] + w * c;
+        if (v < best) {
+          best = v;
+          step = k;
+        }
+      }
+      const cell = at(i, j);
+      D[cell] = best;
+      steps[cell] = step;
+    }
+  }
+  let end = -1;
+  for (let j = lo[n - 1]; j <= hi[n - 1]; j++) if (Number.isFinite(D[at(n - 1, j)]) && (end < 0 || D[at(n - 1, j)] < D[at(n - 1, end)])) end = j;
+  if (end < 0) throw new Error("No path inside the band.");
+  const rows: number[] = [n - 1];
+  const cols: number[] = [end];
+  let i = n - 1;
+  let j = end;
+  while (i > 0) {
+    const [di, dj] = STEPS[steps[at(i, j)]];
+    i -= di;
+    j -= dj;
+    rows.push(i);
+    cols.push(j);
+  }
+  rows.reverse();
+  cols.reverse();
+  return { rows: Int32Array.from(rows), cols: Int32Array.from(cols), cost: D[at(n - 1, end)] / n };
+}
