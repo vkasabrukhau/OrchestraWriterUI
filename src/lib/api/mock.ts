@@ -246,6 +246,11 @@ export const mockApi: ApiClient = {
     for (const program of programs.values()) program.projectIds = program.projectIds.filter((pid) => pid !== id);
   },
 
+  async addSampleFiles() {
+    // the sample files live on the server (fixtures/sample)
+    throw new Error("The sample files need the real API: run without NEXT_PUBLIC_API_MOCK.");
+  },
+
   async uploadScore(projectId, file) {
     const tooBig = /mahler/i.test(file.name);
     const spec = BEETHOVEN_5;

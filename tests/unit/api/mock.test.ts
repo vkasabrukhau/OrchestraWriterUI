@@ -16,6 +16,7 @@ const METHODS: Record<keyof ApiClient, true> = {
   updateProject: true,
   deleteProject: true,
   uploadScore: true,
+  addSampleFiles: true,
   uploadAudio: true,
   removeAudio: true,
   getProjectUrls: true,

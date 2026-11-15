@@ -17,7 +17,8 @@ import { parseSyncState } from "@/shared/sync";
 import { query } from "../db/client";
 import { newProjectObjectKey } from "../storage/keys";
 import { putObjectBytes } from "../storage/objects";
-import { createProject, deleteProject, patchProject, registerAudio, registerScore, saveSync } from "./projects";
+import type { RegisterScoreResponse } from "@/shared/api";
+import { assertProjectOwned, createProject, deleteProject, patchProject, registerAudio, registerScore, saveSync } from "./projects";
 
 export const SAMPLE_TITLE = "Sample · Tchaikovsky 6 (Hallé)";
 const SAMPLE_DIR = path.join(process.cwd(), "fixtures", "sample");
@@ -40,6 +41,30 @@ export async function ensureSampleProject(userId: number): Promise<void> {
   return run;
 }
 
+/**
+ * Put the sample score and recording into a project the user owns, as if
+ * they had uploaded them (the Import page's "Use the sample files"): the
+ * score is registered and parsed (the returned job tracks it), the recording
+ * registered with its precomputed peaks. Replaces what the project had.
+ */
+export async function addSampleFiles(userId: number, projectId: number, options: { awaitParse?: boolean } = {}): Promise<RegisterScoreResponse> {
+  await assertProjectOwned(userId, projectId);
+  const [score, audio, recording] = await Promise.all([
+    readFile(path.join(SAMPLE_DIR, SCORE_FILE)),
+    readFile(path.join(SAMPLE_DIR, AUDIO_FILE)),
+    readFile(path.join(SAMPLE_DIR, "recording.json"), "utf8"),
+  ]);
+  const { durationSec, peaks } = JSON.parse(recording) as { durationSec: number; peaks: number[] };
+
+  const audioKey = newProjectObjectKey(userId, projectId, "audio", AUDIO_NAME);
+  await putObjectBytes(audioKey, new Uint8Array(audio), "audio/mpeg");
+  await registerAudio(userId, projectId, { key: audioKey, filename: AUDIO_NAME, durationSec, peaks });
+
+  const scoreKey = newProjectObjectKey(userId, projectId, "score", SCORE_NAME);
+  await putObjectBytes(scoreKey, new Uint8Array(score), "application/vnd.recordare.musicxml");
+  return registerScore(userId, projectId, { key: scoreKey, filename: SCORE_NAME }, options);
+}
+
 async function createSampleOnce(userId: number): Promise<void> {
   // claim first: a user gets the sample once, even across processes
   const claimed = await query<{ user_id: number }>(
@@ -50,31 +75,19 @@ async function createSampleOnce(userId: number): Promise<void> {
 
   let projectId: number | null = null;
   try {
-    const [score, audio, recording, syncJson] = await Promise.all([
-      readFile(path.join(SAMPLE_DIR, SCORE_FILE)),
-      readFile(path.join(SAMPLE_DIR, AUDIO_FILE)),
-      readFile(path.join(SAMPLE_DIR, "recording.json"), "utf8"),
-      readFile(path.join(SAMPLE_DIR, "sync.json"), "utf8"),
-    ]);
-    const { durationSec, peaks } = JSON.parse(recording) as { durationSec: number; peaks: number[] };
+    const syncJson = await readFile(path.join(SAMPLE_DIR, "sync.json"), "utf8");
     const { sync } = parseSyncState(JSON.parse(syncJson), "strict");
 
     const project = await createProject(userId, { title: SAMPLE_TITLE });
     projectId = Number(project.id);
     await query("UPDATE app.sample_projects SET project_id = $2 WHERE user_id = $1", [userId, projectId]);
 
-    const scoreKey = newProjectObjectKey(userId, projectId, "score", SCORE_NAME);
-    await putObjectBytes(scoreKey, new Uint8Array(score), "application/vnd.recordare.musicxml");
-    await registerScore(userId, projectId, { key: scoreKey, filename: SCORE_NAME }, { awaitParse: true });
+    await addSampleFiles(userId, projectId, { awaitParse: true });
     const [parsed] = await query<{ parse_status: string; parse_error: string | null }>(
       "SELECT parse_status, parse_error FROM app.projects WHERE id = $1 AND user_id = $2",
       [projectId, userId],
     );
     if (parsed?.parse_status !== "succeeded") throw new Error(`the sample score did not parse: ${parsed?.parse_error ?? parsed?.parse_status}`);
-
-    const audioKey = newProjectObjectKey(userId, projectId, "audio", AUDIO_NAME);
-    await putObjectBytes(audioKey, new Uint8Array(audio), "audio/mpeg");
-    await registerAudio(userId, projectId, { key: audioKey, filename: AUDIO_NAME, durationSec, peaks });
 
     await saveSync(userId, projectId, sync);
     await patchProject(userId, projectId, { title: SAMPLE_TITLE, stage: "customize" });

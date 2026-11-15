@@ -47,6 +47,11 @@ export interface ApiClient {
   deleteProject(id: string): Promise<void>;
   /** presign → PUT to S3 → register → mirror the server parse job */
   uploadScore(projectId: string, file: File): Promise<Job<ParseScoreResult>>;
+  /**
+   * Put the sample score and recording (Tchaikovsky 6 · Hallé) into the
+   * project, as if uploaded; the job tracks the score parse like uploadScore.
+   */
+  addSampleFiles(projectId: string): Promise<Job<ParseScoreResult>>;
   /** presign → PUT to S3 → decode for duration + peaks → register */
   uploadAudio(projectId: string, file: File): Promise<Job<AudioUploadResult>>;
   removeAudio(projectId: string): Promise<ProjectDto>;

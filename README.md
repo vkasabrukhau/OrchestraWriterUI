@@ -24,7 +24,8 @@ Every library starts with **Sample · Tchaikovsky 6 (Hallé)**: the first
 movement's score, the Hallé recording and a finished sync (no markers), ready
 at Customize. It is the shared baseline for manual testing. It is created once
 per user the first time the library loads (deleting it does not bring it back),
-from `fixtures/sample/`. Set `SAMPLE_PROJECT=off` to disable it.
+from `fixtures/sample/`. Set `SAMPLE_PROJECT=off` to disable it. To start a
+fresh project from the same files, use **Use sample files** on the Import page.
 
 For a small project of your own: **New project** → drop
 `fixtures/scores/orchestra-demo.musicxml` and, if you want the Sync step,
