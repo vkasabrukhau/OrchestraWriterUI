@@ -30,19 +30,130 @@ const STEPS: Array<[number, number, number]> = [
   [1, 2, 1],
   [2, 1, 2],
 ];
+/** cost per skipped score row in a score jump: the joint cost of a cell with no evidence */
+const SKIPPED_ROW_COST = 0.5;
+/** step codes of the two jumps (after STEPS) */
+const JUMP_RECORDING = 3;
+const JUMP_SCORE = 4;
+
+/**
+ * Jumps for the DTWs (not in the reference). A recording jump goes from row
+ * i − 1 at any column ≤ j − 3 to (i, j): recording material the score does
+ * not have (a repeat the score lacks, a pause, applause). A score jump goes
+ * from column j − 1 at any row ≤ i − 3 to (i, j): score the recording skips
+ * (a cut, a repeat not taken), paying 0.5 (no evidence) for each skipped
+ * row so skipping music is never cheaper than matching it badly. Each also
+ * costs a fixed penalty plus the cell, so
+ * ordinary tempo changes never use them; they exist so that manual markers
+ * that imply such a jump always have a path through them, without warping
+ * the music around the jump.
+ *
+ * Per row it keeps the previous row's running minimum (for recording jumps)
+ * and, per column, the minimum over rows ≤ i − 3 (for score jumps).
+ */
+class JumpTracker {
+  private readonly prefix: Float64Array;
+  private readonly prefixCol: Int32Array;
+  private readonly colMin: Float64Array;
+  private readonly colRow: Int32Array;
+  private prevRow = -1;
+  private row = 0;
+  private lo = 0;
+
+  constructor(m: number) {
+    this.prefix = new Float64Array(m).fill(Infinity);
+    this.prefixCol = new Int32Array(m).fill(-1);
+    this.colMin = new Float64Array(m).fill(Infinity);
+    this.colRow = new Int32Array(m).fill(-1);
+  }
+
+  /**
+   * Before row i: running minimum over row i − 1 (columns rowLo…rowHi of
+   * that row's band) and the column minima over rows ≤ i − 3.
+   * `cell(r, j)` is the index of (r, j) in D, or −1 outside the band.
+   */
+  nextRow(D: Float64Array, i: number, m: number, rowLo: number, rowHi: number, cell: (r: number, j: number) => number, bandOf?: (r: number) => [number, number]): void {
+    this.prefix.fill(Infinity);
+    this.prefixCol.fill(-1);
+    let best = Infinity;
+    let arg = -1;
+    for (let j = rowLo; j <= rowHi; j++) {
+      const c = cell(i - 1, j);
+      if (c >= 0 && D[c] < best) {
+        best = D[c];
+        arg = j;
+      }
+      this.prefix[j] = best;
+      this.prefixCol[j] = arg;
+    }
+    for (let j = rowHi + 1; j < m; j++) {
+      this.prefix[j] = best;
+      this.prefixCol[j] = arg;
+    }
+    this.lo = rowLo;
+    if (i >= 3) {
+      // stored relative to the row, so a jump from row r into row i pays
+      // SKIPPED_ROW_COST for each of the i − r − 1 rows it skips
+      const r = i - 3;
+      const [a, b] = bandOf ? bandOf(r) : [0, m - 1];
+      for (let j = a; j <= b; j++) {
+        const c = cell(r, j);
+        if (c >= 0 && D[c] - r * SKIPPED_ROW_COST < this.colMin[j]) {
+          this.colMin[j] = D[c] - r * SKIPPED_ROW_COST;
+          this.colRow[j] = r;
+        }
+      }
+    }
+    this.prevRow = i - 1;
+    this.row = i;
+  }
+
+  /** the cheaper jump into column j of the current row, `add` = penalty + cell cost */
+  best(j: number, add: number): { value: number; step: number; row: number; col: number } {
+    let value = Infinity;
+    let step = 0;
+    let row = -1;
+    let col = -1;
+    if (j - 3 >= this.lo && this.prefixCol[j - 3] >= 0) {
+      value = this.prefix[j - 3] + add;
+      step = JUMP_RECORDING;
+      row = this.prevRow;
+      col = this.prefixCol[j - 3];
+    }
+    const skip = this.colMin[j - 1] + (this.row - 1) * SKIPPED_ROW_COST + add;
+    if (j >= 1 && this.colRow[j - 1] >= 0 && skip < value) {
+      value = skip;
+      step = JUMP_SCORE;
+      row = this.colRow[j - 1];
+      col = j - 1;
+    }
+    return { value, step, row, col };
+  }
+}
 
 /**
  * `bounds` (optional): per score row, the recording columns the path may use
  * (manual-marker anchors, ADR 0021). Cells outside are never on the path.
  */
-export function subsequenceDtw(cost: Float32Array, n: number, m: number, topK = 3, bounds?: { lo: Int32Array; hi: Int32Array }): CoarseMatch {
+export function subsequenceDtw(
+  cost: Float32Array,
+  n: number,
+  m: number,
+  topK = 3,
+  bounds?: { lo: Int32Array; hi: Int32Array },
+  jumpPenalty = Infinity,
+): CoarseMatch {
   if (n < 1 || m < 1) throw new Error("No frames to match.");
   if (n * m > MAX_COARSE_CELLS) throw new Error("The score and recording are too long for the broad match (over 8 million cells at 2 Hz).");
   const D = new Float64Array(n * m).fill(Infinity);
   const steps = new Uint8Array(n * m);
+  const jumps = Number.isFinite(jumpPenalty);
+  const from = jumps ? new Int32Array(n * m) : null;
+  const jump = jumps ? new JumpTracker(m) : null;
   const allowed = (i: number, j: number) => !bounds || (j >= bounds.lo[i] && j <= bounds.hi[i]);
   for (let j = 0; j < m; j++) if (allowed(0, j)) D[j] = cost[j];
   for (let i = 1; i < n; i++) {
+    jump?.nextRow(D, i, m, 0, m - 1, (r, j) => r * m + j);
     for (let j = 0; j < m; j++) {
       if (!allowed(i, j)) continue;
       const c = cost[i * m + j];
@@ -55,6 +166,14 @@ export function subsequenceDtw(cost: Float32Array, n: number, m: number, topK = 
         if (v < best) {
           best = v;
           step = k;
+        }
+      }
+      if (jump && from) {
+        const j2 = jump.best(j, jumpPenalty + c);
+        if (j2.value < best) {
+          best = j2.value;
+          step = j2.step;
+          from[i * m + j] = j2.row * m + j2.col;
         }
       }
       D[i * m + j] = best;
@@ -85,9 +204,16 @@ export function subsequenceDtw(cost: Float32Array, n: number, m: number, topK = 
     rows.push(i);
     cols.push(j);
     while (i > 0) {
-      const [di, dj] = STEPS[steps[i * m + j]];
-      i -= di;
-      j -= dj;
+      const st = steps[i * m + j];
+      if (st >= JUMP_RECORDING && from) {
+        const o = from[i * m + j];
+        i = Math.floor(o / m);
+        j = o % m;
+      } else {
+        const [di, dj] = STEPS[st];
+        i -= di;
+        j -= dj;
+      }
       rows.push(i);
       cols.push(j);
     }
@@ -136,15 +262,28 @@ export function pathMapping(match: CoarseMatch, rate: number): { score: number[]
  * path starts anywhere in row 0's band and ends at the cheapest column of
  * the last row (accumulated cost / rows). `cost(i, j)` is read once per cell.
  */
-export function bandedDtw(cost: (i: number, j: number) => number, n: number, lo: Int32Array, hi: Int32Array): { rows: Int32Array; cols: Int32Array; cost: number } {
+export function bandedDtw(
+  cost: (i: number, j: number) => number,
+  n: number,
+  lo: Int32Array,
+  hi: Int32Array,
+  jumpPenalty = Infinity,
+): { rows: Int32Array; cols: Int32Array; cost: number; jumps: number } {
   if (n < 1) throw new Error("No frames to match.");
   const offset = new Int32Array(n + 1);
-  for (let i = 0; i < n; i++) offset[i + 1] = offset[i] + Math.max(0, hi[i] - lo[i] + 1);
+  let m = 0;
+  for (let i = 0; i < n; i++) {
+    offset[i + 1] = offset[i] + Math.max(0, hi[i] - lo[i] + 1);
+    m = Math.max(m, hi[i] + 1);
+  }
   const D = new Float64Array(offset[n]).fill(Infinity);
   const steps = new Uint8Array(offset[n]);
   const at = (i: number, j: number) => (j < lo[i] || j > hi[i] ? -1 : offset[i] + j - lo[i]);
+  const jump = Number.isFinite(jumpPenalty) ? new JumpTracker(m) : null;
+  const from = jump ? new Float64Array(offset[n]) : null;
   for (let j = lo[0]; j <= hi[0]; j++) D[at(0, j)] = cost(0, j);
   for (let i = 1; i < n; i++) {
+    jump?.nextRow(D, i, m, lo[i - 1], hi[i - 1], at, (r) => [lo[r], hi[r]]);
     for (let j = lo[i]; j <= hi[i]; j++) {
       let best = Infinity;
       let step = 0;
@@ -162,6 +301,15 @@ export function bandedDtw(cost: (i: number, j: number) => number, n: number, lo:
         }
       }
       const cell = at(i, j);
+      if (jump && from) {
+        if (Number.isNaN(c)) c = cost(i, j);
+        const j2 = jump.best(j, jumpPenalty + c);
+        if (j2.value < best) {
+          best = j2.value;
+          step = j2.step;
+          from[cell] = j2.row * m + j2.col;
+        }
+      }
       D[cell] = best;
       steps[cell] = step;
     }
@@ -173,14 +321,23 @@ export function bandedDtw(cost: (i: number, j: number) => number, n: number, lo:
   const cols: number[] = [end];
   let i = n - 1;
   let j = end;
+  let jumps = 0;
   while (i > 0) {
-    const [di, dj] = STEPS[steps[at(i, j)]];
-    i -= di;
-    j -= dj;
+    const st = steps[at(i, j)];
+    if (st >= JUMP_RECORDING && from) {
+      const o = from[at(i, j)];
+      i = Math.floor(o / m);
+      j = o % m;
+      jumps++;
+    } else {
+      const [di, dj] = STEPS[st];
+      i -= di;
+      j -= dj;
+    }
     rows.push(i);
     cols.push(j);
   }
   rows.reverse();
   cols.reverse();
-  return { rows: Int32Array.from(rows), cols: Int32Array.from(cols), cost: D[at(n - 1, end)] / n };
+  return { rows: Int32Array.from(rows), cols: Int32Array.from(cols), cost: D[at(n - 1, end)] / n, jumps };
 }

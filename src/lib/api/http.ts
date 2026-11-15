@@ -350,6 +350,8 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
           range,
           style: input.style ?? "smooth",
           markers: nextApplied,
+          previousMarkers: applied,
+          previousMethod: prev?.method,
           onProgress: scaled(ctx.report, 0.12, 0.92),
           signal: ctx.signal,
         });

@@ -29,6 +29,8 @@ import { gaussianKernel, gaussianRow, interp } from "./signal";
 export const CORRIDOR_RADIUS_SEC = 4;
 export const REGULARIZATION = 0.25;
 export const PROTECTED_WEIGHT = 0.25;
+/** seed slope (recording s per score s) beyond which a seed segment is a DTW jump, not a tempo */
+const JUMP_SLOPE = 2.05;
 export const STAGE_SIGMAS_SEC = [0.1, 0.04];
 export const ACOUSTIC_TOLERANCE = 0.02;
 const MAX_EVALUATIONS = 1200;
@@ -554,6 +556,19 @@ export function optimizeMapping(input: OptimizeInput): OptimizeResult {
   const isProtected = new Uint8Array(n - 1);
   for (const [a, b] of protectedQuarters) for (let k = 0; k < n - 1; k++) if (qs[k] < b - 1e-8 && qs[k + 1] > a + 1e-8) isProtected[k] = 1;
   const weights = Float64Array.from({ length: Math.max(0, n - 2) }, (_, t) => (isProtected[t] || isProtected[t + 1] ? PROTECTED_WEIGHT : 1));
+  // A jump in the seed (recording material the score lacks, or score the
+  // recording skips; coarse.ts) is a break in the music, not a tempo change:
+  // no continuity term spans it. DTW steps alone never go beyond 2× or ½×.
+  const isBreak = new Uint8Array(n - 1);
+  for (let k = 0; k + 1 < seed.score.length; k++) {
+    const ds = seed.score[k + 1] - seed.score[k];
+    const dr = seed.recording[k + 1] - seed.recording[k];
+    if (!(ds > 0) || (dr / ds <= JUMP_SLOPE && dr / ds >= 1 / JUMP_SLOPE)) continue;
+    const qa = clock.toQuarter(seed.score[k]);
+    const qb = clock.toQuarter(seed.score[k + 1]);
+    for (let t = 0; t < n - 1; t++) if (qs[t] < qb - 1e-8 && qs[t + 1] > qa + 1e-8) isBreak[t] = 1;
+  }
+  for (let t = 0; t < weights.length; t++) if (isBreak[t] || isBreak[t + 1]) weights[t] = 0;
   const spacings = Float64Array.from({ length: Math.max(0, n - 2) }, (_, t) => (qs[t + 1] - qs[t] + (qs[t + 2] - qs[t + 1])) / 2);
 
   // 9.3 acoustic corridor around the seed

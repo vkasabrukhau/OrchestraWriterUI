@@ -4,7 +4,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { InfoMap } from "@/shared/info-map";
 import { parseMusicXml } from "@/shared/score";
 import { mergeAlignment, type AlignAudio, type ManualMarker } from "@/shared/sync";
-import { anchorColumnBounds, anchorMapping, cleanAnchors, markerAnchors, shiftAnchors } from "@/lib/align/anchors";
+import { anchorColumnBounds, anchorMapping, changedMarkerBars, cleanAnchors, localizeMarkerRun, markerAnchors, shiftAnchors } from "@/lib/align/anchors";
+import { bandedDtw, subsequenceDtw } from "@/lib/align/integrated/coarse";
 import { dtw } from "@/lib/align/dtw";
 import { alignChromaDtw } from "@/lib/align/index";
 import { alignIntegrated, type IntegratedDetail } from "@/lib/align/integrated";
@@ -63,18 +64,111 @@ describe("anchor helpers", () => {
     expect([lo[6], hi[6]]).toEqual([19, 39]);
   });
 
-  it("re-times a mapping through the anchors, proportionally between them and shifted outside", () => {
-    const m = anchorMapping({ score: [0, 10, 20], recording: [0, 10, 20] }, [
+  it("re-times a mapping through the anchors, proportionally between them, fading out outside", () => {
+    const m = anchorMapping({ score: [0, 10, 20, 60], recording: [0, 10, 20, 60] }, [
       { scoreSec: 5, sec: 7 },
       { scoreSec: 15, sec: 16 },
     ]);
     const at = (s: number) => m.recording[m.score.indexOf(s)];
     expect(at(5)).toBe(7);
     expect(at(15)).toBe(16);
-    expect(at(0)).toBeCloseTo(2);
+    // 5 s outside an anchor: 5/6 of its correction (it fades over ANCHOR_TAPER_SEC = 30 s)
+    expect(at(0)).toBeCloseTo(2 * (25 / 30));
     expect(at(10)).toBeCloseTo(11.5);
-    expect(at(20)).toBeCloseTo(21);
+    expect(at(20)).toBeCloseTo(20 + 25 / 30);
+    // far from every anchor the mapping is untouched
+    expect(at(60)).toBeCloseTo(60);
     for (let k = 1; k < m.recording.length; k++) expect(m.recording[k]).toBeGreaterThan(m.recording[k - 1]);
+  });
+});
+
+describe("marker runs stay where the markers reach (ADR 0024)", () => {
+  const bars = (times: number[]) => times.map((startSec, i) => ({ n: i + 1, startSec, confidence: 80 }));
+
+  it("takes the new timing across the stretch connected to a changed marker, plus one bar", () => {
+    const prev = bars([0, 2, 4, 6, 8, 10, 12, 14, 16, 18]);
+    // marker on bar 4: bars 3–5 moved; bar 9 also moved, unconnected to it
+    const next = bars([0, 2, 4.4, 6.5, 8.3, 10, 12, 14, 16.4, 18]).map((a, i) => ({ ...a, confidence: i === 3 ? 100 : 60 }));
+    const out = localizeMarkerRun(prev, next, [4]);
+    expect(out.map((a) => a.startSec)).toEqual([0, 2, 4.4, 6.5, 8.3, 10, 12, 14, 16, 18]);
+    expect(out[3].confidence).toBe(100);
+    expect(out[8].confidence).toBe(80);
+  });
+
+  it("re-times as far as the departure runs (the whole piece if it does)", () => {
+    const prev = bars([0, 2, 4, 6, 8, 10]);
+    const next = bars([1, 3, 5, 7, 9, 11]);
+    expect(localizeMarkerRun(prev, next, [6]).map((a) => a.startSec)).toEqual([1, 3, 5, 7, 9, 11]);
+  });
+
+  it("keeps the seams in order and returns the new run when there is nothing to compare", () => {
+    const prev = bars([0, 2, 4, 6]);
+    const next = bars([0, 2, 1.95, 6]);
+    const out = localizeMarkerRun(prev, next, [3]);
+    for (let i = 1; i < out.length; i++) expect(out[i].startSec).toBeGreaterThan(out[i - 1].startSec);
+    expect(localizeMarkerRun([], next, [3])).toBe(next);
+    expect(localizeMarkerRun(prev, next, [])).toBe(next);
+  });
+
+  it("lists bars of markers added, moved or removed", () => {
+    const before = [marker(3, 5), marker(8, 20)];
+    const after = [marker(3, 5), marker(8, 20.4), marker(12, 30)];
+    expect(changedMarkerBars(before, after)).toEqual([8, 12]);
+    expect(changedMarkerBars(after, [marker(3, 5)])).toEqual([8, 12]);
+    expect(changedMarkerBars(before, before)).toEqual([]);
+  });
+});
+
+describe("DTW jumps (recording material the score lacks, score the recording skips)", () => {
+  // diagonal of cheap cells with a 12-column detour (a passage played twice) after row 10
+  const n = 30;
+  const m = 60;
+  const costWithDetour = () => {
+    const c = new Float32Array(n * m).fill(0.6);
+    for (let i = 0; i < n; i++) c[i * m + (i < 10 ? i + 5 : i + 17)] = 0.05;
+    return c;
+  };
+
+  it("never jumps on an ordinary diagonal", () => {
+    const c = new Float32Array(n * m).fill(0.6);
+    for (let i = 0; i < n; i++) c[i * m + i + 5] = 0.05;
+    const plain = subsequenceDtw(c, n, m, 1);
+    const withJumps = subsequenceDtw(c, n, m, 1, undefined, 8);
+    expect(Array.from(withJumps.cols)).toEqual(Array.from(plain.cols));
+  });
+
+  it("jumps over recording material in one step instead of warping the music around it", () => {
+    const match = subsequenceDtw(costWithDetour(), n, m, 1, undefined, 2);
+    const at = (row: number) => match.cols[match.rows.lastIndexOf(row)];
+    expect(at(9)).toBe(14);
+    expect(at(10)).toBe(27);
+    expect(at(20)).toBe(37);
+  });
+
+  it("a band through anchors on both sides of the detour has a path only with jumps", () => {
+    const c = costWithDetour();
+    const lo = new Int32Array(n);
+    const hi = new Int32Array(n);
+    // anchors at rows 9 and 10 two steps of 13 columns apart: no 2× step covers that
+    for (let i = 0; i < n; i++) {
+      const center = i < 10 ? i + 5 : i + 17;
+      lo[i] = Math.max(0, center - 2);
+      hi[i] = Math.min(m - 1, center + 2);
+    }
+    expect(() => bandedDtw((i, j) => c[i * m + j], n, lo, hi)).toThrow();
+    const path = bandedDtw((i, j) => c[i * m + j], n, lo, hi, 2);
+    expect(path.jumps).toBe(1);
+    expect(path.cols[path.rows.lastIndexOf(10)]).toBe(27);
+  });
+
+  it("skips score rows the recording leaves out, paying for each skipped row", () => {
+    // rows 10–19 are missing from the recording
+    const c = new Float32Array(n * m).fill(0.6);
+    for (let i = 0; i < n; i++) if (i < 10 || i >= 20) c[i * m + (i < 10 ? i + 5 : i - 5)] = 0.05;
+    const free = subsequenceDtw(c, n, m, 1, undefined, 0.5);
+    const at = (row: number) => free.cols[free.rows.indexOf(row)];
+    expect(at(9)).toBe(14);
+    expect(at(20)).toBe(15);
   });
 });
 
@@ -122,6 +216,27 @@ describe("aligners with anchors on the warped demo recording", () => {
   }, 60_000);
 
   const truthAt = (bar: number) => truth.measures[bar - 1].recordingStartSec;
+
+  it("integrated: markers around a passage the recording plays twice re-time the music after it (needs a DTW jump)", async () => {
+    // 10 s of the recording repeated at bar 30's start: everything after it is 10 s later
+    const sr = audio.sampleRate;
+    const cut = Math.round(truthAt(30) * sr);
+    const extra = Math.round(10 * sr);
+    const samples = new Float32Array(audio.samples.length + extra);
+    samples.set(audio.samples.subarray(0, cut), 0);
+    samples.set(audio.samples.subarray(cut - extra, cut), cut);
+    samples.set(audio.samples.subarray(cut), cut + extra);
+    const spliced: AlignAudio = { samples, sampleRate: sr, durationSec: samples.length / sr };
+    const after = (bar: number) => truthAt(bar) + 10;
+    const markers = [marker(29, truthAt(29)), marker(30, after(30))];
+    const d = await alignIntegrated(infoMap, spliced, { anchors: markerAnchors(infoMap, markers) });
+    const start = (bar: number) => d.sync.auto[bar - 1].startSec;
+    expect(start(29)).toBeCloseTo(truthAt(29), 2);
+    expect(start(30)).toBeCloseTo(after(30), 2);
+    // bar 40 follows the general pause, the aligner's known weak spot (about 0.2 s with or without markers; ADR 0014)
+    for (let bar = 31; bar <= 45; bar++) if (bar !== 40) expect(Math.abs(start(bar) - after(bar))).toBeLessThan(0.15);
+    for (let bar = 2; bar <= 28; bar++) expect(Math.abs(start(bar) - truthAt(bar))).toBeLessThan(0.15);
+  }, 60_000);
 
   it("integrated: lands exactly on true anchors and stays as accurate", async () => {
     const markers = [marker(10, truthAt(10)), marker(30, truthAt(30))];

@@ -98,6 +98,18 @@ function sliceFeatures(f: SyncFeatures, end: number): SyncFeatures {
   };
 }
 
+/**
+ * Penalty of a DTW jump (coarse.ts), in joint cost × seconds of path, so it
+ * means the same at 2 Hz and 10 Hz: about 8 s of mediocre matching. 2–5 left
+ * both test recordings unchanged and let a recording with a 30 s passage
+ * played twice align without markers; 10 never fired.
+ */
+export const JUMP_PENALTY_COST_SEC = 4;
+
+function jumpPenalty(rate: number): number {
+  return JUMP_PENALTY_COST_SEC * rate;
+}
+
 /** columns of slack around an anchor in the 2 Hz broad match */
 const COARSE_ANCHOR_TOLERANCE = 1;
 
@@ -114,7 +126,7 @@ export function broadMatch(score: SyncFeatures, audio: SyncFeatures, end: number
   if (ss.n * as.n > 8_000_000) throw new Error("The score and recording are too long for the broad match.");
   const cells = anchors.map((a) => ({ row: Math.round(a.scoreSec * s2.rate), col: Math.round(a.sec * a2.rate) })).filter((c) => c.row < ss.n && c.col < as.n);
   const bounds = cells.length ? anchorColumnBounds(cells, ss.n, as.n, COARSE_ANCHOR_TOLERANCE) : undefined;
-  const match = subsequenceDtw(costMatrix(ss, as), ss.n, as.n, 3, bounds);
+  const match = subsequenceDtw(costMatrix(ss, as), ss.n, as.n, 3, bounds, jumpPenalty(s2.rate));
   let seed = pathMapping(match, s2.rate);
   const k = seed.score.length - 1;
   if (k >= 1 && seed.score[k] < end) {
@@ -172,7 +184,7 @@ export function refineSeed(score: SyncFeatures, audio: SyncFeatures, end: number
       }
     }
   }
-  const path = bandedDtw((i, j) => pairCost(ss, as, i, j), s.n, lo, hi);
+  const path = bandedDtw((i, j) => pairCost(ss, as, i, j), s.n, lo, hi, jumpPenalty(rate));
   let mapping = pathMapping({ rows: path.rows, cols: path.cols, cost: path.cost, margin: null, startCol: path.cols[0], endCol: path.cols[path.cols.length - 1] }, rate);
   const k = mapping.score.length - 1;
   if (k >= 1 && mapping.score[k] < end) {
