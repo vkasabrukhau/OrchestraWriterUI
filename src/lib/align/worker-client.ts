@@ -1,5 +1,5 @@
 /**
- * Runs the chroma-DTW aligner off the main thread with progress and
+ * Runs the aligner (runAlignment: integrated tempo, chroma DTW fallback) off the main thread with progress and
  * cancellation. Falls back to the main thread where Worker is unavailable
  * (tests, old browsers); the result is identical.
  *
@@ -10,8 +10,8 @@
  */
 import type { InfoMap } from "@/shared/info-map";
 import type { AlignAudio, AlignProgress, SyncState } from "@/shared/sync";
-import { createChromaDtwAligner, type ChromaDtwOptions } from "./index";
 import type { AlignRequest, AlignResponse } from "./protocol";
+import { runAlignment, type AlignOptions } from "./select";
 
 function abortError(): Error {
   return typeof DOMException !== "undefined"
@@ -24,16 +24,22 @@ function warnMainThread(reason: unknown) {
   console.warn("[align] worker unavailable, running on the main thread:", reason);
 }
 
+function withoutTransfer(options?: AlignOptions & { transferSamples?: boolean }): AlignOptions {
+  const rest: AlignOptions & { transferSamples?: boolean } = { ...options };
+  delete rest.transferSamples;
+  return rest;
+}
+
 export async function alignInWorker(
   infoMap: InfoMap,
   audio: AlignAudio,
   onProgress?: AlignProgress,
   signal?: AbortSignal,
-  options?: ChromaDtwOptions & { transferSamples?: boolean },
+  options?: AlignOptions & { transferSamples?: boolean },
 ): Promise<SyncState> {
   if (signal?.aborted) throw abortError();
   if (typeof Worker === "undefined") {
-    return createChromaDtwAligner(options).align(infoMap, audio, onProgress, signal);
+    return runAlignment(infoMap, audio, withoutTransfer(options), onProgress, signal);
   }
 
   let worker: Worker;
@@ -41,7 +47,7 @@ export async function alignInWorker(
     worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
   } catch (err) {
     warnMainThread(err instanceof Error ? err.message : err);
-    return createChromaDtwAligner(options).align(infoMap, audio, onProgress, signal);
+    return runAlignment(infoMap, audio, withoutTransfer(options), onProgress, signal);
   }
 
   return new Promise<SyncState>((resolve, reject) => {
@@ -70,14 +76,13 @@ export async function alignInWorker(
       if (!heardFromWorker)
         finish(() => {
           warnMainThread(event.message || "the worker script failed to load");
-          createChromaDtwAligner(options).align(infoMap, audio, onProgress, signal).then(resolve, reject);
+          runAlignment(infoMap, audio, withoutTransfer(options), onProgress, signal).then(resolve, reject);
         });
       else finish(() => reject(new Error(event.message || "Alignment worker failed")));
     };
 
     const samples = options?.transferSamples ? audio.samples : audio.samples.slice();
-    const alignOptions: ChromaDtwOptions = { ...options };
-    delete (alignOptions as { transferSamples?: boolean }).transferSamples;
+    const alignOptions = withoutTransfer(options);
     const request: AlignRequest = {
       type: "align",
       infoMap,

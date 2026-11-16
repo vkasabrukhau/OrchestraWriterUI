@@ -1,81 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { ArrowLeft, Check, Save } from "lucide-react";
+import { ArrowLeft, Save } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { toast } from "@/components/ui/toast";
 import { useProject } from "@/lib/store/project";
 import { cx } from "@/lib/utils/format";
 import { UserMenu } from "./UserMenu";
-import type { ProjectStage } from "@/shared/domain";
-
-const STEPS: Array<{ id: ProjectStage; label: string }> = [
-  { id: "import", label: "Import" },
-  { id: "sync", label: "Sync" },
-  { id: "customize", label: "Customize" },
-  { id: "preview", label: "Preview" },
-  { id: "export", label: "Export" },
-];
-
-const ORDER: ProjectStage[] = STEPS.map((s) => s.id);
-
-interface StepState {
-  id: ProjectStage;
-  label: string;
-  active: boolean;
-  done: boolean;
-  enabled: boolean;
-  skipped: boolean;
-}
+import { Step, useSteps } from "./StepTabs";
+import { useSaveStatus } from "./useSaveStatus";
 
 export function WorkflowNav({ projectId }: { projectId: string }) {
-  const pathname = usePathname();
   const summary = useProject((s) => s.summary);
   const loadedId = useProject((s) => s.projectId);
-  const dirty = useProject((s) => s.dirty);
-  const savedAt = useProject((s) => s.savedAt);
-  const saveError = useProject((s) => s.saveError);
-  // `markSaved` is the fire-and-forget form of `saveNow`; awaiting it drives "Saving…"
-  const saveNow = useProject((s) => s.saveNow);
-  const [saving, setSaving] = useState(false);
-
-  // the store may still hold the previous project while this one loads
   const project = loadedId === projectId ? summary : null;
-  const current = ORDER.find((st) => pathname.endsWith("/" + st)) ?? "import";
-  const reached = ORDER.indexOf(project?.stage ?? "import");
-  const noRecording = project ? !project.hasRecording : false;
-
-  const steps: StepState[] = STEPS.map((s) => {
-    const idx = ORDER.indexOf(s.id);
-    const active = s.id === current;
-    const skipped = s.id === "sync" && noRecording;
-    return {
-      ...s,
-      active,
-      skipped,
-      done: idx < reached && !skipped && !active,
-      enabled: active || (idx <= reached && !skipped && project !== null),
-    };
-  });
-
-  useEffect(() => {
-    if (saveError) toast.error("Could not save the project", { id: "project-save-error", description: saveError });
-  }, [saveError]);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await saveNow();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveLabel = saving ? "Saving…" : dirty ? "Unsaved changes" : savedAt ? "Saved" : "";
+  const steps = useSteps(projectId);
+  const { dirty, saving, save, label: saveLabel } = useSaveStatus();
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-paper/85 backdrop-blur-md">
@@ -129,35 +70,5 @@ export function WorkflowNav({ projectId }: { projectId: string }) {
         </ol>
       </nav>
     </header>
-  );
-}
-
-function Step({ step: s, projectId }: { step: StepState; projectId: string }) {
-  const cls = cx(
-    "relative flex items-center gap-1.5 px-2.5 py-2 text-[13.5px] transition-colors lg:px-3",
-    s.active ? "font-medium text-ink" : s.enabled ? "text-ink-2 hover:text-ink" : "text-ink-4",
-    s.skipped && "line-through decoration-ink-4",
-  );
-  const inner = (
-    <>
-      {s.done && <Check size={12} className="text-brass" aria-hidden />}
-      {s.label}
-      {s.done && <span className="sr-only"> (done)</span>}
-      {s.active && <span className="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-brass" aria-hidden />}
-    </>
-  );
-  if (!s.enabled) {
-    return (
-      <Tooltip label={s.skipped ? "No recording: playback is generated from the score" : "Finish the previous step first"} side="bottom">
-        <span className={cls} aria-disabled tabIndex={0}>
-          {inner}
-        </span>
-      </Tooltip>
-    );
-  }
-  return (
-    <Link href={`/projects/${projectId}/${s.id}`} className={cls} aria-current={s.active ? "step" : undefined}>
-      {inner}
-    </Link>
   );
 }

@@ -46,6 +46,11 @@ export class TempoMap {
     return p.sec + ((q - p.q) * 60) / p.bpm;
   }
 
+  /** breakpoints in playback order: quarter position, score seconds, tempo from there on */
+  breakpoints(): Array<{ q: number; sec: number; bpm: number }> {
+    return this.points.map((p) => ({ ...p }));
+  }
+
   /** tempo in effect at the start of the piece */
   get initialBpm(): number {
     return this.points[0].bpm;

@@ -8,7 +8,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/Menu";
 import { cx } from "@/lib/utils/format";
 
-export function UserMenu({ onStage }: { onStage?: boolean }) {
+export function UserMenu({ onStage, size = "md" }: { onStage?: boolean; size?: "sm" | "md" }) {
   const user = useSession((s) => s.user);
   const status = useSession((s) => s.status);
   const signOut = useSession((s) => s.signOut);
@@ -16,7 +16,7 @@ export function UserMenu({ onStage }: { onStage?: boolean }) {
 
   if (status === "loading") {
     // same footprint as the avatar so the header does not shift when the session arrives
-    return <span className="shimmer h-9 w-9 shrink-0 rounded-full" aria-hidden />;
+    return <span className={cx("shimmer shrink-0 rounded-full", size === "sm" ? "h-7 w-7" : "h-9 w-9")} aria-hidden />;
   }
 
   if (!user) {
@@ -33,7 +33,7 @@ export function UserMenu({ onStage }: { onStage?: boolean }) {
       className="w-64"
       trigger={
         <button type="button" className="focus-round shrink-0 rounded-full" aria-label="Account menu">
-          <Avatar initials={user.initials} />
+          <Avatar initials={user.initials} size={size === "sm" ? "sm" : "md"} />
         </button>
       }
     >

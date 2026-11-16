@@ -145,13 +145,27 @@ export function normalizeToPercentile(values: number[], percentile: number): num
   return values.map((v) => Math.max(0, Math.min(1, v / ref)));
 }
 
-/** Mono PCM for the aligner (src/shared/sync.ts AlignAudio). */
-export function toAlignAudio(buffer: AudioBufferLike): AlignAudio {
-  return {
-    sampleRate: buffer.sampleRate,
-    samples: downmixToMono(buffer),
-    durationSec: buffer.sampleRate > 0 ? buffer.length / buffer.sampleRate : 0,
-  };
+/**
+ * Mono PCM for the aligner (src/shared/sync.ts AlignAudio). With a window,
+ * only those seconds are downmixed (a range re-sync never copies the whole
+ * recording); `durationSec` is then the window's length.
+ */
+export function toAlignAudio(buffer: AudioBufferLike, window?: { startSec: number; endSec: number }): AlignAudio {
+  const rate = buffer.sampleRate;
+  if (!window) {
+    return { sampleRate: rate, samples: downmixToMono(buffer), durationSec: rate > 0 ? buffer.length / rate : 0 };
+  }
+  const a = Math.max(0, Math.min(buffer.length, Math.floor(window.startSec * rate)));
+  const b = Math.max(a, Math.min(buffer.length, Math.ceil(window.endSec * rate)));
+  const n = b - a;
+  const ch = Math.max(1, buffer.numberOfChannels);
+  const out = new Float32Array(n);
+  for (let c = 0; c < ch; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < n; i++) out[i] += data[a + i];
+  }
+  if (ch > 1) for (let i = 0; i < n; i++) out[i] /= ch;
+  return { sampleRate: rate, samples: out, durationSec: rate > 0 ? n / rate : 0 };
 }
 
 /**

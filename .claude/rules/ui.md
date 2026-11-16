@@ -20,4 +20,10 @@ paths:
   Icons: Lucide. All open-licensed; keep it that way.
 - Label things with plain part names. Every color encoding has a visible legend.
 - Playback controls appear on Sync, Customize, and Preview, with the same
-  component and the same keyboard shortcuts.
+  keyboard shortcuts (`PlaybackShortcuts`) and the same playback store.
+  Sync and Preview use `Transport`; editor pages (ADR 0022) use
+  `EditorTransport`, a compact layout of the same controls. Both live in
+  `src/components/music/Transport.tsx`; don't add a third.
+- Every project step has the same workflow header (`WorkflowNav`). Editor
+  pages put their menus and tools in a tool bar at the top of the editor
+  window, not in the header (ADR 0023).

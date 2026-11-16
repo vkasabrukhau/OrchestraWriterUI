@@ -1,11 +1,32 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { mergeAlignment, measureAtRecordingTime, recordingToScoreTime, scoreToRecordingTime } from "@/shared/sync";
+import { appliedOf, mergeAlignmentDetailed, measureAtRecordingTime, recordingToScoreTime, scoreToRecordingTime, type ManualMarker, type MeasureAlignment, type SyncState } from "@/shared/sync";
 import { useProject } from "./project";
 import { usePlayback } from "./playback";
 
 export { recordingToScoreTime, scoreToRecordingTime };
+
+type Merged = ReturnType<typeof mergeAlignmentDetailed>;
+/** one merge per (auto, applied) pair: a marker edit replaces only `manual`, so audible timing keeps its identity (ADR 0018) */
+const mergeCache = new WeakMap<MeasureAlignment[], WeakMap<ManualMarker[], Merged>>();
+const EMPTY: ManualMarker[] = [];
+
+/** Audible timing of a sync state: the aligner's bars with the applied markers merged in. */
+export function mergedAlignment(sync: Pick<SyncState, "auto" | "manual" | "applied">): Merged {
+  const applied = appliedOf(sync) ?? EMPTY;
+  let inner = mergeCache.get(sync.auto);
+  if (!inner) {
+    inner = new WeakMap();
+    mergeCache.set(sync.auto, inner);
+  }
+  let hit = inner.get(applied);
+  if (!hit) {
+    hit = mergeAlignmentDetailed(sync.auto, applied);
+    inner.set(applied, hit);
+  }
+  return hit;
+}
 
 /**
  * Two clocks: the transport runs in recording time when a recording exists
@@ -17,7 +38,10 @@ export function useProjectTiming() {
   const sync = useProject((s) => s.sync);
   const hasRecording = useProject((s) => s.summary?.hasRecording ?? false);
 
-  const aligned = useMemo(() => (sync && hasRecording ? mergeAlignment(sync.auto, sync.manual) : []), [sync, hasRecording]);
+  const auto = sync?.auto;
+  const applied = sync ? appliedOf(sync) : undefined;
+  // keyed on the arrays, not the sync object: editing a marker changes nothing audible
+  const aligned = useMemo(() => (auto && applied && hasRecording ? mergedAlignment({ auto, manual: applied, applied }).aligned : []), [auto, applied, hasRecording]);
 
   /** score-time clock for the Stage */
   const clock = useCallback(() => {
@@ -59,5 +83,22 @@ export function useProjectTiming() {
     [measureStart],
   );
 
-  return { clock, measureAt, measureStart, seekMeasure, aligned, hasRecording };
+  /** seek the transport to a score time (a note clicked in the notation) */
+  const seekScoreTime = useCallback(
+    (scoreSec: number) => {
+      const t = infoMap && aligned.length > 0 ? scoreToRecordingTime(infoMap, aligned, scoreSec) : scoreSec;
+      usePlayback.getState().seek(Math.max(0, t));
+    },
+    [infoMap, aligned],
+  );
+
+  /** transport seconds of a score time */
+  const toTransport = useCallback(
+    (scoreSec: number) => (infoMap && aligned.length > 0 ? scoreToRecordingTime(infoMap, aligned, scoreSec) : scoreSec),
+    [infoMap, aligned],
+  );
+  /** score seconds of a transport time */
+  const toScore = useCallback((t: number) => (infoMap && aligned.length > 0 ? recordingToScoreTime(infoMap, aligned, t) : t), [infoMap, aligned]);
+
+  return { clock, measureAt, measureStart, seekMeasure, seekScoreTime, toTransport, toScore, aligned, hasRecording };
 }

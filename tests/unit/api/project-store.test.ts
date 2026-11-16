@@ -124,7 +124,8 @@ describe("useProject.load", () => {
     await useProject.getState().load("p1");
     const s = useProject.getState();
     expect(s.display).toEqual(display);
-    expect(s.sync).toEqual(sync);
+    // a legacy row (no `applied`) is normalized on load: every marker was audible, so applied = manual
+    expect(s.sync).toEqual({ ...sync, applied: [] });
     expect(s.peaks).toEqual([0.5]);
     expect(s.audioUrl).toBe("https://s3.test/audio");
     expect(api.saveDisplay).not.toHaveBeenCalled();
@@ -187,6 +188,24 @@ describe("useProject autosave", () => {
     const [, second] = api.saveSync.mock.calls[1] as [string, SyncState];
     expect(second.method).toBe("fresh");
     expect(second.manual).toHaveLength(1);
+  });
+
+  it("keeps note-level markers apart from the downbeat marker of the same bar", async () => {
+    api.getProject.mockResolvedValue(dto({ hasRecording: true, sync }));
+    await useProject.getState().load("p1");
+    const st = () => useProject.getState();
+    st().addMarker(2, 2.8);
+    st().addMarker(2, 3.3, 0.5);
+    st().addMarker(2, 3.35, 0.5); // same note: replaces
+    st().nudgeMarker(2, -0.05, 0.5);
+    let manual = st().sync!.manual;
+    expect(manual.map((m) => [m.measure, m.position, m.startSec])).toEqual([
+      [2, undefined, 2.8],
+      [2, 0.5, expect.closeTo(3.3)],
+    ]);
+    st().removeMarker(2);
+    manual = st().sync!.manual;
+    expect(manual.map((m) => [m.measure, m.position])).toEqual([[2, 0.5]]);
   });
 
   it("stays dirty until the last edit is saved, and saveNow flushes immediately", async () => {

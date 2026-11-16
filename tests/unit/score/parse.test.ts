@@ -123,6 +123,19 @@ describe("parseMusicXml: timing quirks", () => {
   });
 });
 
+describe("parseMusicXml: rehearsal marks", () => {
+  it("records the first printed mark per bar on every playback pass", () => {
+    const { infoMap } = parseOk(Q + "rehearsal.musicxml");
+    // written 1 |: 2 3 :| 4  →  1 2 3 2 3 4
+    expect(infoMap.measures.map((m) => m.rehearsal)).toEqual([undefined, "A", "B", "A", "B", undefined]);
+  });
+
+  it("leaves bars without marks untouched", () => {
+    const { infoMap } = parseOk(Q + "repeats.musicxml");
+    expect(infoMap.measures.every((m) => m.rehearsal === undefined)).toBe(true);
+  });
+});
+
 describe("parseMusicXml: repeats and jumps", () => {
   it("expands a repeat with 1st/2nd endings and ignores D.C. with a warning", () => {
     const { infoMap } = parseOk(Q + "repeats.musicxml");
@@ -333,5 +346,33 @@ describe("parseMusicXml: file formats and bad input", () => {
     const a = parseFixture(Q + "dynamics.musicxml");
     const b = parseFixture(Q + "dynamics.musicxml");
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+});
+
+describe("parseMusicXml: timing for the aligner", () => {
+  it("emits the tempo map in score seconds", () => {
+    const { infoMap } = parseOk(Q + "tempo-change.musicxml");
+    expect(infoMap.timing?.tempo).toEqual([
+      { time: 0, bpm: 60 },
+      { time: 4, bpm: 120 },
+      { time: 7, bpm: 60 },
+      { time: 9, bpm: 120 },
+    ]);
+    expect(infoMap.timing?.fermatas).toEqual([]);
+  });
+
+  it("collects fermatas on notes and rests across parts, once per span", () => {
+    const fermataBar = (rest: boolean) => `
+      <measure number="1">
+        <attributes><divisions>1</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes>
+        <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+        <note>${rest ? "<rest/>" : "<pitch><step>D</step><octave>4</octave></pitch>"}<duration>1</duration><notations><fermata/></notations></note>
+      </measure>`;
+    const xml = `<?xml version="1.0"?><score-partwise version="4.0">
+      <part-list><score-part id="P1"><part-name>Flute</part-name></score-part><score-part id="P2"><part-name>Oboe</part-name></score-part></part-list>
+      <part id="P1">${fermataBar(false)}</part><part id="P2">${fermataBar(true)}</part></score-partwise>`;
+    const out = parseMusicXml({ bytes: strToU8(xml), filename: "fermata.musicxml" });
+    if (!out.ok) throw new Error(out.error);
+    expect(out.infoMap.timing?.fermatas).toEqual([{ start: 0.5, end: 1 }]);
   });
 });

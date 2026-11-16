@@ -16,6 +16,8 @@
  *   or applause is cheap to skip and music is not).
  */
 
+import { anchorColumnBounds } from "./anchors";
+
 export interface DtwOptions {
   /** feature dimension (12 for chroma) */
   dim?: number;
@@ -27,6 +29,14 @@ export interface DtwOptions {
   endCenter?: number;
   /** cost of leaving recording frame j unmatched before the start or after the end (default: no open ends) */
   skipCost?: Float32Array;
+  /**
+   * cells the path must pass near (manual-marker anchors, ADR 0021): the band
+   * is centered through them and rows before / after each anchor stay left /
+   * right of its column, with `anchorTolerance` columns of slack
+   */
+  anchors?: Array<{ row: number; col: number }>;
+  /** default 1 */
+  anchorTolerance?: number;
   /** upper bound on band cells (bytes of the step matrix); the radius shrinks to fit (default 48M) */
   maxCells?: number;
   /** called with 0–1 while rows are processed; may throw to abort */
@@ -67,18 +77,35 @@ export function dtw(X: Float32Array, Y: Float32Array, options: DtwOptions = {}):
   const requested = Math.max(2, Math.ceil(options.radius ?? 0.2 * Math.max(n, m)));
   // long recordings: keep the step matrix (n × (2r + 3) bytes) within budget
   const radius = Math.max(2, Math.min(requested, Math.floor((maxCells / n - 3) / 2)));
-  const startCenter = options.startCenter ?? 0;
-  const endCenter = options.endCenter ?? m - 1;
+  const anchors = (options.anchors ?? [])
+    .filter((a) => a.row >= 0 && a.row < n && a.col >= 0 && a.col < m)
+    .sort((a, b) => a.row - b.row);
+  let startCenter = options.startCenter ?? 0;
+  let endCenter = options.endCenter ?? m - 1;
+  if (anchors.length) {
+    startCenter = Math.min(startCenter, anchors[0].col);
+    endCenter = Math.max(endCenter, anchors[anchors.length - 1].col);
+  }
   const skip = options.skipCost;
 
-  // band per row
+  // band per row: around the line through (0, start), the anchors and (n−1, end)
+  const line = [{ row: 0, col: startCenter }, ...anchors.filter((a) => a.row > 0 && a.row < n - 1), { row: n - 1, col: endCenter }];
+  const fence = anchors.length ? anchorColumnBounds(anchors, n, m, options.anchorTolerance ?? 1) : null;
   const lo = new Int32Array(n);
   const hi = new Int32Array(n);
+  let seg = 0;
   for (let i = 0; i < n; i++) {
-    const c = n === 1 ? startCenter : startCenter + ((endCenter - startCenter) * i) / (n - 1);
+    while (seg + 2 < line.length && line[seg + 1].row <= i) seg++;
+    const a = line[seg];
+    const b = line[Math.min(seg + 1, line.length - 1)];
+    const c = n === 1 || b.row === a.row ? a.col : a.col + ((b.col - a.col) * (i - a.row)) / (b.row - a.row);
     lo[i] = Math.max(0, Math.floor(c) - radius);
     hi[i] = Math.min(m - 1, Math.ceil(c) + radius);
-    if (hi[i] < lo[i]) hi[i] = lo[i] = Math.max(0, Math.min(m - 1, Math.round(c)));
+    if (fence) {
+      lo[i] = Math.max(lo[i], fence.lo[i]);
+      hi[i] = Math.min(hi[i], fence.hi[i]);
+    }
+    if (hi[i] < lo[i]) hi[i] = lo[i] = Math.max(0, Math.min(m - 1, fence ? Math.max(fence.lo[i], Math.min(fence.hi[i], Math.round(c))) : Math.round(c)));
   }
   const stride = 2 * radius + 3;
   const steps = new Uint8Array(n * stride);
@@ -107,7 +134,8 @@ export function dtw(X: Float32Array, Y: Float32Array, options: DtwOptions = {}):
       } else {
         best = get(prev1, i - 1, j - 1);
         step = STEP_DIAG;
-        if (i >= 2 && j >= 1) {
+        // each jump's middle cell must lie in its row's band too
+        if (i >= 2 && j >= 1 && j >= lo[i - 1] && j <= hi[i - 1]) {
           const v = get(prev2, i - 2, j - 1);
           if (v < Infinity) {
             const via = v + localCost(X, i - 1, Y, j, dim);
@@ -117,7 +145,7 @@ export function dtw(X: Float32Array, Y: Float32Array, options: DtwOptions = {}):
             }
           }
         }
-        if (j >= 2) {
+        if (j >= 2 && j - 1 >= lo[i]) {
           const v = get(prev1, i - 1, j - 2);
           if (v < Infinity) {
             const via = v + localCost(X, i, Y, j - 1, dim);

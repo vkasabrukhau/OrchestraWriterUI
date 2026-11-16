@@ -9,7 +9,12 @@ import type { ActivityItem, ProjectSummary } from "@/shared/domain";
 import type { InfoMap } from "@/shared/info-map";
 import type { AlignResult, AudioUploadResult, ExportResult, Job, JobKind, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
 import type { DisplaySettings, ProjectFile } from "@/shared/project-file";
-import { mergeAlignment, UNCERTAIN_THRESHOLD, type SyncState } from "@/shared/sync";
+import { decodeScoreBytes } from "@/shared/score/decode";
+import { appliedOf, mergeAlignment, mergeAlignmentDetailed, parseSyncState, resolveRange, type SyncState } from "@/shared/sync";
+import { normalizeMarkers } from "@/lib/score/stamps";
+import { runSync } from "@/lib/align/sync-function";
+import { buildPeakPyramid, type PeakPyramid } from "@/lib/audio/peaks";
+import { writeRun } from "./sync-run";
 import type {
   ActivityDto,
   ExportDto,
@@ -35,8 +40,7 @@ import type {
   UploadTarget,
   UsageDto,
 } from "@/shared/api";
-import { decodeAudioFile, peaksFromAudioBuffer, renderScoreToAudioBuffer, toAlignAudio } from "@/lib/audio";
-import { alignInWorker } from "@/lib/align/worker-client";
+import { decodeAudioFile, peaksFromAudioBuffer, renderScoreToAudioBuffer } from "@/lib/audio";
 import { buildProjectFile, packProjectFile, renderMp4, unpackProjectFile } from "@/lib/export";
 import { getJob, mirrorRemoteJob, runLocalJob, subscribeJob, type LocalJobHandle } from "@/lib/jobs/registry";
 import { defaultDisplay } from "@/lib/store/display-defaults";
@@ -44,6 +48,10 @@ import { cacheAudio, evictAudio, getCachedAudio } from "./audio-cache";
 import { AuthRequiredError, isNotFound, errorMessage } from "./errors";
 import { ensureExtension, fetchBytes, fetchJson, putWithProgress, request, scoreContentType, toArrayBuffer } from "./transport";
 import type { ApiClient, ExportMp4Options } from "./types";
+
+
+/** detailed waveform peaks per project (small: about 2 MB per 18 minutes) */
+const peakCache = new Map<string, PeakPyramid>();
 
 export const CREATED_WITH = "Orchestra Visualizer 0.1.0";
 
@@ -82,10 +90,12 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
 
   const urlCache = new Map<string, { urls: ProjectUrls; at: number }>();
   const infoMapCache = new Map<string, { key: string; infoMap: InfoMap }>();
+  const scoreXmlCache = new Map<string, { key: string; xml: string }>();
 
   function invalidate(projectId: string) {
     urlCache.delete(projectId);
     infoMapCache.delete(projectId);
+    scoreXmlCache.delete(projectId);
   }
 
   /* ------------------------------ basics ------------------------------ */
@@ -127,6 +137,20 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
     const infoMap = await fetchJson<InfoMap>(urls.infoMap);
     infoMapCache.set(id, { key: project.infoMapKey, infoMap });
     return infoMap;
+  }
+
+  async function fetchScoreXml(id: string): Promise<string | null> {
+    const project = await mustGetProject(id);
+    if (!project.scoreKey) return null;
+    const hit = scoreXmlCache.get(id);
+    if (hit && hit.key === project.scoreKey) return hit.xml;
+    let urls = await getProjectUrls(id);
+    if (!urls.score) urls = await getProjectUrls(id, true);
+    if (!urls.score) return null;
+    const decoded = decodeScoreBytes(new Uint8Array(await fetchBytes(urls.score)), project.scoreKey);
+    if (!decoded.ok) throw new Error(decoded.error);
+    scoreXmlCache.set(id, { key: project.scoreKey, xml: decoded.text });
+    return decoded.text;
   }
 
   async function saveSync(id: string, sync: SyncState, options: { keepalive?: boolean } = {}): Promise<ProjectDto> {
@@ -291,11 +315,21 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
 
     getProjectUrls: (id, options) => getProjectUrls(id, options?.fresh ?? false),
     fetchInfoMap,
+    fetchScoreXml,
     saveSync,
     saveDisplay,
 
     // processing
-    async startAlignment(projectId) {
+    async loadRecordingPeaks(projectId, signal) {
+      const cached = peakCache.get(projectId);
+      if (cached) return cached;
+      const buffer = await loadAudioBuffer(projectId, signal);
+      const pyramid = await buildPeakPyramid(buffer, 256, signal);
+      peakCache.set(projectId, pyramid);
+      return pyramid;
+    },
+
+    async startAlignment(projectId, input = {}) {
       return startJob<AlignResult>("align", async (ctx) => {
         ctx.report(0.02, "Loading project");
         const project = await mustGetProject(projectId);
@@ -304,14 +338,25 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
         ctx.report(0.06, "Loading recording");
         const buffer = await loadAudioBuffer(projectId, ctx.signal);
         ctx.report(0.12, "Preparing audio");
-        const audio = toAlignAudio(buffer);
-        const result = await alignInWorker(infoMap, audio, scaled(ctx.report, 0.12, 0.92), ctx.signal);
+        const prev = project.sync ? normalizeMarkers(project.sync, infoMap) : null;
+        const range = input.range && prev && prev.auto.length === infoMap.measures.length ? input.range : null;
+        const manual = prev?.manual ?? [];
+        const applied = prev ? appliedOf(prev) : [];
+        const nextApplied = resolveRange(manual, applied, range);
+        const out = await runSync({
+          infoMap,
+          recording: buffer,
+          auto: prev?.auto ?? [],
+          range,
+          style: input.style ?? "smooth",
+          markers: nextApplied,
+          onProgress: scaled(ctx.report, 0.12, 0.92),
+          signal: ctx.signal,
+        });
         ctx.report(0.94, "Saving alignment");
-        // Manual markers always win and must survive a re-run (sync rule).
-        const sync: SyncState = { ...result, manual: project.sync?.manual ?? [] };
-        await saveSync(projectId, sync);
-        const uncertainMeasures = sync.auto.filter((m) => m.confidence < UNCERTAIN_THRESHOLD).length;
-        return { measures: sync.auto.length, averageConfidence: sync.averageConfidence, uncertainMeasures, method: sync.method };
+        const result = writeRun(prev, out, range, manual, nextApplied);
+        await saveSync(projectId, result.sync);
+        return result.summary;
       });
     },
 
@@ -328,7 +373,11 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
           if (!project.hasRecording) throw new Error("This project has no uploaded recording");
           ctx.report(0.02, "Loading recording");
           audio = await loadAudioBuffer(projectId, ctx.signal);
-          if (project.sync) aligned = mergeAlignment(project.sync.auto, project.sync.manual);
+          if (project.sync) {
+            // export plays what the user hears: only applied markers (ADR 0018)
+            const sync = normalizeMarkers(project.sync, infoMap);
+            aligned = mergeAlignment(sync.auto, appliedOf(sync));
+          }
         } else {
           ctx.report(0.02, "Generating playback from the score");
           audio = await renderScoreToAudioBuffer(infoMap, infoMap.duration, {
@@ -423,22 +472,47 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
             const audioBlob = new Blob([toArrayBuffer(audioBytes)], { type: "audio/mpeg" });
             await uploadAndRegisterAudio(project.id, audioBlob, audioFilename, "audio/mpeg", ctx, 0.6, 0.88);
           }
+          const warnings: string[] = [];
           if (projectFile.sync && hasRecording) {
             // Measure numbers are playback order with repeats expanded; a file
             // whose alignment was made for a different measure count cannot be
-            // trusted bar by bar. Keep manual markers that are still in range.
+            // trusted bar by bar. Keep markers that are still in range.
             const measures = parsed.measures;
-            const auto = projectFile.sync.auto.length === measures ? projectFile.sync.auto : [];
-            const manual = projectFile.sync.manual.filter((m) => m.measure >= 1 && m.measure <= measures);
-            if (auto.length > 0 || manual.length > 0) {
+            const { sync: checked, dropped } = parseSyncState(projectFile.sync, "lenient");
+            const sameBars = checked.auto.length === measures;
+            const inRange = (m: { measure: number }) => m.measure >= 1 && m.measure <= measures;
+            let sync: SyncState = {
+              ...checked,
+              auto: sameBars ? checked.auto : [],
+              manual: checked.manual.filter(inRange),
+              applied: (checked.applied ?? checked.manual).filter(inRange),
+              averageConfidence: sameBars ? checked.averageConfidence : 0,
+            };
+            if (!sameBars) {
+              // the stored alignment no longer describes this score
+              sync.method = "none";
+              delete sync.diagnostics;
+            }
+            const infoMap = await fetchInfoMap(project.id);
+            const before = sync.manual.length;
+            sync = normalizeMarkers(sync, infoMap);
+            const merged = before - sync.manual.length;
+            if (merged > 0) warnings.push(`${merged} duplicate marker${merged === 1 ? " was" : "s were"} merged.`);
+            if (dropped > 0) warnings.push(`${dropped} unreadable marker entr${dropped === 1 ? "y was" : "ies were"} skipped.`);
+            const { unhonoured } = mergeAlignmentDetailed(sync.auto, appliedOf(sync));
+            if (unhonoured.length > 0) {
+              const bars = [...new Set(sync.manual.filter((m) => unhonoured.includes(m.id)).map((m) => m.measure))].sort((x, y) => x - y);
+              warnings.push(`${unhonoured.length} marker${unhonoured.length === 1 ? "" : "s"} on bar${bars.length === 1 ? "" : "s"} ${bars.join(", ")} can't be kept exactly. See Markers on the Sync page.`);
+            }
+            if (sync.auto.length > 0 || sync.manual.length > 0) {
               ctx.report(0.9, "Restoring alignment");
-              await saveSync(project.id, { ...projectFile.sync, auto, manual, averageConfidence: auto.length ? projectFile.sync.averageConfidence : 0 });
+              await saveSync(project.id, sync);
             }
           }
           ctx.report(0.95, "Restoring display settings");
           await saveDisplay(project.id, projectFile.display);
           invalidate(project.id);
-          return { projectId: project.id, hasRecording };
+          return warnings.length > 0 ? { projectId: project.id, hasRecording, warnings } : { projectId: project.id, hasRecording };
         } catch (err) {
           // do not leave a half-imported project behind
           await request(`/projects/${enc(project.id)}`, { method: "DELETE" }).catch(() => {});

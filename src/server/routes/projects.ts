@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import type { ProjectStage } from "@/shared/domain";
 import type { DisplaySettings } from "@/shared/project-file";
 import { SECTIONS } from "@/shared/sections";
-import type { SyncState } from "@/shared/sync";
+import { parseSyncState, SyncShapeError, type SyncState } from "@/shared/sync";
 import { ValidationError } from "../errors";
 import * as exportsService from "../services/exports";
 import * as projects from "../services/projects";
@@ -31,7 +31,6 @@ export const projectsRoutes = new Hono<AuthEnv>();
 projectsRoutes.use("*", requireUser);
 
 const STAGES: readonly ProjectStage[] = ["import", "sync", "customize", "preview", "export"];
-const MAX_MEASURES = 20_000;
 const MAX_PEAKS = 4_096;
 
 const projectId = (c: Parameters<typeof idParam>[0]) => idParam(c, "id", "Project");
@@ -109,33 +108,14 @@ projectsRoutes.get("/:id/urls", async (c) => {
   return c.json(await projects.getProjectUrls(c.get("userId"), projectId(c)));
 });
 
-/**
- * Loose shape check of SyncState: the arrays and numbers the rest of the app
- * relies on must be there and be numbers. The JSON is the user's own project
- * data, stored as given.
- */
+/** SyncState from the request, through the shared strict validator (unknown keys dropped). */
 function parseSync(body: Record<string, unknown>): SyncState {
-  str(body.method, "method", { min: 1, max: 100 });
-  num(body.averageConfidence, "averageConfidence", { min: 0, max: 100 });
-  if (!Array.isArray(body.auto) || body.auto.length > MAX_MEASURES) {
-    throw new ValidationError(`auto must be an array of at most ${MAX_MEASURES} measures`);
+  try {
+    return parseSyncState(body, "strict").sync;
+  } catch (e) {
+    if (e instanceof SyncShapeError) throw new ValidationError(e.message);
+    throw e;
   }
-  if (!Array.isArray(body.manual) || body.manual.length > MAX_MEASURES) {
-    throw new ValidationError(`manual must be an array of at most ${MAX_MEASURES} markers`);
-  }
-  body.auto.forEach((m: unknown, i) => {
-    if (!isPlainObject(m)) throw new ValidationError(`auto[${i}] must be an object`);
-    num(m.n, `auto[${i}].n`, { min: 1 });
-    num(m.startSec, `auto[${i}].startSec`, { min: 0 });
-    num(m.confidence, `auto[${i}].confidence`, { min: 0, max: 100 });
-  });
-  body.manual.forEach((m: unknown, i) => {
-    if (!isPlainObject(m)) throw new ValidationError(`manual[${i}] must be an object`);
-    str(m.id, `manual[${i}].id`, { min: 1, max: 100 });
-    num(m.measure, `manual[${i}].measure`, { min: 1 });
-    num(m.startSec, `manual[${i}].startSec`, { min: 0 });
-  });
-  return body as unknown as SyncState;
 }
 
 projectsRoutes.put("/:id/sync", async (c) => {

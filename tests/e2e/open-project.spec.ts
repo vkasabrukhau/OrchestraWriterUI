@@ -34,7 +34,7 @@ test("a saved .ovproj opens as a new project with its markers and colors", async
   });
 
   await test.step("Sync lists the restored marker", async () => {
-    const markers = page.getByRole("region", { name: "Manual markers" });
+    const markers = page.getByRole("complementary", { name: "Sync sidebar" }).getByRole("list", { name: "Markers" });
     await expect(markers.getByRole("listitem")).toHaveText(["Bar 3 · 0:05.4"], { timeout: 30_000 });
     await expect(page.getByText("1 manual marker", { exact: true })).toBeVisible();
   });

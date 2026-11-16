@@ -8,8 +8,9 @@
  *   path ──▶ measure starts (recording seconds) + per-measure confidence
  *
  * The method is a prototype candidate (STATE.md open question 2); keep it
- * behind `Aligner` so it can be swapped. Manual markers are merged elsewhere
- * (mergeAlignment); the aligner never sees them.
+ * behind `Aligner` so it can be swapped. Manual markers arrive as anchors
+ * (ADR 0021): the band runs through them, the path may not cross them, and
+ * the measure starts are re-timed to pass through them exactly.
  */
 import type { InfoMap } from "@/shared/info-map";
 import type { AlignAudio, AlignProgress, Aligner, MeasureAlignment, SyncState } from "@/shared/sync";
@@ -18,6 +19,8 @@ import { measureConfidences } from "./confidence";
 import { dtw, type DtwResult } from "./dtw";
 import { scoreChroma } from "./score-chroma";
 import { soundingTranspose } from "@/shared/score/transpose";
+import { anchorMapping, cleanAnchors, type AlignAnchor } from "./anchors";
+import { interp } from "./integrated/signal";
 
 export const CHROMA_DTW_METHOD = "chroma-dtw";
 /** minimum spacing between consecutive measure starts (recording seconds) */
@@ -32,6 +35,8 @@ export interface ChromaDtwOptions {
   smoothRows?: number;
   /** semitones from written to sounding pitch per part id (default: the parser's <transpose> per part) */
   transpose?: Record<string, number>;
+  /** manual markers as score/recording pairs in this score and audio (ADR 0021) */
+  anchors?: AlignAnchor[];
 }
 
 export interface ChromaDtwDetail {
@@ -98,18 +103,22 @@ export async function alignChromaDtw(
   }
   const bandFraction = options.bandFraction ?? 0.2;
   const radius = Math.ceil(bandFraction * Math.max(nScore, audioFeat.n)) + active.first;
+  const durationSec = audio.durationSec > 0 ? audio.durationSec : audio.samples.length / audio.sampleRate;
+  const anchors = cleanAnchors(options.anchors ?? []).filter((a) => a.scoreSec <= infoMap.duration + 1e-6 && a.sec <= durationSec);
   const path = dtw(scoreFeat.frames, audioFeat.frames, {
     radius,
     startCenter: active.first,
     endCenter: active.last,
     skipCost,
+    anchors: anchors.map((a) => ({ row: Math.round(a.scoreSec / scoreHopSec), col: Math.round(a.sec / audioFeat.hopSec) })),
     onProgress: (f) => progress(0.45 + f * 0.4, "Warping"),
   });
   progress(0.85, "Scoring confidence");
   await nextTick();
 
   // 4. measure starts from the path, then confidence
-  const startsSec = readMeasureStarts(path, infoMap, scoreHopSec, audioFeat.hopSec, options.smoothRows ?? 4);
+  let startsSec = readMeasureStarts(path, infoMap, scoreHopSec, audioFeat.hopSec, options.smoothRows ?? 4);
+  if (anchors.length) startsSec = pinStarts(infoMap, startsSec, anchors);
   const confidences = measureConfidences({
     path,
     scoreFrames: scoreFeat.frames,
@@ -121,7 +130,7 @@ export async function alignChromaDtw(
     measures: infoMap.measures,
     startsSec,
   });
-  const auto = finalizeStarts(infoMap, startsSec, confidences, audio.durationSec > 0 ? audio.durationSec : audio.samples.length / audio.sampleRate);
+  const auto = finalizeStarts(infoMap, startsSec, confidences, durationSec);
   const averageConfidence = Math.round(auto.reduce((s, a) => s + a.confidence, 0) / auto.length);
   progress(1, "Scoring confidence");
   return { sync: { method: CHROMA_DTW_METHOD, auto, manual: [], averageConfidence }, audio: audioFeat, score: scoreFeat, path, active };
@@ -169,6 +178,15 @@ export function readMeasureStarts(path: DtwResult, infoMap: InfoMap, scoreHopSec
     }
     return col * audioHopSec;
   });
+}
+
+/** Measure starts re-timed through the anchors (proportionally between them, as mergeAlignment does). */
+export function pinStarts(infoMap: InfoMap, startsSec: number[], anchors: AlignAnchor[]): number[] {
+  const score = infoMap.measures.map((m) => m.startTime);
+  const recording: number[] = [];
+  for (let k = 0; k < startsSec.length; k++) recording.push(k > 0 ? Math.max(startsSec[k], recording[k - 1]) : startsSec[k]);
+  const pinned = anchorMapping({ score, recording }, anchors);
+  return score.map((s) => interp(s, pinned.score, pinned.recording));
 }
 
 /** Clamp to [0, duration], force strictly increasing starts (≥ 10 ms apart), round to ms. */

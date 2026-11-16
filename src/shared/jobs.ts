@@ -48,11 +48,27 @@ export interface AudioUploadResult {
   peaks: number[];
 }
 
+/** What a sync run covers: no range = the whole piece. */
+export interface AlignJobInput {
+  range?: { from: number; to: number };
+  /** "smooth" (default) or "rigid" (not available yet) */
+  style?: "smooth" | "rigid";
+}
+
 export interface AlignResult {
   measures: number;
   averageConfidence: number;
   uncertainMeasures: number;
   method: string;
+  /** the bars this run covered (absent = the whole piece) */
+  range?: { from: number; to: number };
+  /** pending marker changes this run applied, and those still waiting */
+  applied?: number;
+  stillPending?: number;
+  /** the fallback aligner ran instead of the chosen method */
+  fellBack?: boolean;
+  /** seams clamped to keep the order */
+  seamClamped?: number;
 }
 
 export interface ExportResult {
@@ -70,4 +86,6 @@ export interface ExportResult {
 export interface OpenProjectResult {
   projectId: string;
   hasRecording: boolean;
+  /** things the file held that could not be kept as they were */
+  warnings?: string[];
 }

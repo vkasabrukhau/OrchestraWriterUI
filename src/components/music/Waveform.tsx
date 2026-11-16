@@ -30,12 +30,13 @@ export function Waveform({
   const id = useId();
   const ref = useRef<HTMLDivElement>(null);
   const n = peaks.length;
+  // The bars only change with the peaks. Built once as elements, React skips
+  // them on the per-frame re-render while playing; only the clip width moves.
   const bars = useMemo(
     () =>
       peaks.map((p, i) => {
-        const x = (i / n) * 100;
         const h = Math.max(6, p * 100);
-        return { x, h, w: (100 / n) * 0.62 };
+        return <rect key={i} x={(i / n) * 100} y={(100 - h) / 2} width={(100 / n) * 0.62} height={h} rx="0.3" />;
       }),
     [peaks, n],
   );
@@ -73,14 +74,10 @@ export function Waveform({
           <rect key={i} x={b.from * 100} y="0" width={(b.to - b.from) * 100} height="100" fill={b.color} opacity="0.18" />
         ))}
         <g fill={onStage ? "var(--stage-text)" : "var(--ink)"} fillOpacity={onStage ? 0.22 : 0.16}>
-          {bars.map((b, i) => (
-            <rect key={i} x={b.x} y={(100 - b.h) / 2} width={b.w} height={b.h} rx="0.3" />
-          ))}
+          {bars}
         </g>
         <g fill="var(--brass)" clipPath={`url(#${id}-played)`}>
-          {bars.map((b, i) => (
-            <rect key={i} x={b.x} y={(100 - b.h) / 2} width={b.w} height={b.h} rx="0.3" />
-          ))}
+          {bars}
         </g>
         {markers?.map((m, i) => (
           <rect key={i} x={m.at * 100 - 0.12} y="0" width={m.strong ? 0.35 : 0.22} height="100" fill={m.color ?? "var(--ink)"} opacity={m.strong ? 1 : 0.7} />

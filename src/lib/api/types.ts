@@ -1,8 +1,9 @@
 import type { ActivityItem, ProjectSummary } from "@/shared/domain";
 import type { InfoMap } from "@/shared/info-map";
-import type { AlignResult, AudioUploadResult, ExportResult, Job, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
+import type { AlignJobInput, AlignResult, AudioUploadResult, ExportResult, Job, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
 import type { DisplaySettings } from "@/shared/project-file";
 import type { SyncState } from "@/shared/sync";
+import type { PeakPyramid } from "@/lib/audio/peaks";
 import type {
   ExportDto,
   ProfileDto,
@@ -51,13 +52,17 @@ export interface ApiClient {
   removeAudio(projectId: string): Promise<ProjectDto>;
   getProjectUrls(id: string, options?: { fresh?: boolean }): Promise<ProjectUrls>;
   fetchInfoMap(id: string): Promise<InfoMap>;
+  /** The uploaded MusicXML as text (.mxl unzipped) for engraved notation; null when there is no score file to show. */
+  fetchScoreXml(id: string): Promise<string | null>;
   /** PUT the whole sync state; resolves with the project (updatedAt, derived status) */
   saveSync(id: string, sync: SyncState, options?: { keepalive?: boolean }): Promise<ProjectDto>;
   /** PUT the whole display settings; resolves with the project (updatedAt) */
   saveDisplay(id: string, display: DisplaySettings, options?: { keepalive?: boolean }): Promise<ProjectDto>;
 
   // processing (browser-side jobs that persist through the API)
-  startAlignment(projectId: string): Promise<Job<AlignResult>>;
+  startAlignment(projectId: string, input?: AlignJobInput): Promise<Job<AlignResult>>;
+  /** detailed min/max peaks of the recording for the zoomable waveform (null when unavailable) */
+  loadRecordingPeaks(projectId: string, signal?: AbortSignal): Promise<PeakPyramid | null>;
   exportMp4(options: ExportMp4Options): Promise<Job<ExportResult>>;
   exportProjectFile(projectId: string, filename: string): Promise<Job<ExportResult>>;
   openProjectFile(file: File): Promise<Job<OpenProjectResult>>;

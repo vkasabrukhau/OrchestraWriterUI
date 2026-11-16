@@ -61,7 +61,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 function resetStore() {
   usePlayback.getState().attach(null);
-  usePlayback.setState({ playing: false, time: 0, duration: 438, rate: 1, volume: 0.8, muted: false, loop: false });
+  usePlayback.setState({ playing: false, time: 0, duration: 438, rate: 1, volume: 0.8, muted: false, loop: false, range: null, cue: null });
 }
 
 describe("playback store without an engine (silent clock)", () => {
@@ -172,6 +172,43 @@ describe("playback store with an engine", () => {
     usePlayback.getState().tick(0.016);
     expect(usePlayback.getState()).toMatchObject({ playing: true, time: 0 });
     expect(e.calls.filter((c) => c === "play").length).toBe(3);
+  });
+
+  it("repeats a passage: starts inside it and jumps back at its end", async () => {
+    const e = new FakeEngine();
+    usePlayback.getState().attach(e);
+    await flush();
+    usePlayback.getState().seek(5);
+    usePlayback.getState().setRange({ start: 30, end: 20 }); // either order
+    expect(usePlayback.getState().range).toEqual({ start: 20, end: 30 });
+    usePlayback.getState().play();
+    expect(e.t).toBe(20);
+    e.t = 25;
+    usePlayback.getState().tick(0.016);
+    expect(usePlayback.getState().time).toBe(25);
+    e.t = 30.01;
+    usePlayback.getState().tick(0.016);
+    expect(usePlayback.getState()).toMatchObject({ playing: true, time: 20 });
+    expect(e.t).toBe(20);
+    usePlayback.getState().setRange(null);
+    expect(usePlayback.getState().range).toBeNull();
+  });
+
+  it("plays from the start point or resumes from the playhead", async () => {
+    const e = new FakeEngine();
+    usePlayback.getState().attach(e);
+    await flush();
+    usePlayback.getState().seek(40);
+    usePlayback.getState().setCue({ at: 12, measure: 5, position: 0.5, label: "bar 5, beat 3" });
+    expect(usePlayback.getState().time).toBe(40); // setting a start point does not move the playhead
+    usePlayback.getState().play();
+    expect(e.t).toBe(40);
+    usePlayback.getState().pause();
+    usePlayback.getState().playFromCue();
+    expect(usePlayback.getState()).toMatchObject({ playing: true, time: 12 });
+    expect(e.t).toBe(12);
+    usePlayback.getState().reset(120);
+    expect(usePlayback.getState().cue).toBeNull();
   });
 
   it("notices a pause from outside the app (OS media keys)", async () => {

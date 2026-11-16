@@ -36,6 +36,7 @@
     "midi-file": "^1.2.4",
     "mp4-muxer": "^5.2.2",
     "next": "16.4.3",
+    "opensheetmusicdisplay": "2.2.1",
     "pg": "^8.23.1",
     "radix-ui": "^1.8.1",
     "react": "19.3.0",

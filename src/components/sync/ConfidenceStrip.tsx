@@ -16,10 +16,15 @@ export function ConfidenceStrip({
   selected,
   onPick,
   labelOf = String,
+  pending,
   className,
+  barClassName = "h-9",
 }: {
   aligned: MeasureAlignment[];
   manual: Set<number>;
+  /** bars holding a marker change that a recompute has not applied (hatched) */
+  pending?: Set<number>;
+  barClassName?: string;
   current: number;
   selected: number | null;
   onPick: (measure: number) => void;
@@ -55,7 +60,7 @@ export function ConfidenceStrip({
     <div className={className}>
       <div
         ref={ref}
-        className="focus-round relative h-9 w-full cursor-crosshair overflow-hidden rounded-[var(--radius-sm)] border border-line bg-paper-3"
+        className={`focus-round relative ${barClassName} w-full cursor-crosshair overflow-hidden rounded-[var(--radius-sm)] border border-line bg-paper-3`}
         onPointerDown={pick}
         onPointerMove={(e) => e.buttons === 1 && pick(e)}
         onKeyDown={onKeyDown}
@@ -75,6 +80,11 @@ export function ConfidenceStrip({
             <rect key={m} x={m - 1} y={0} width={1} height={10} fill="var(--ink)" opacity={0.6} />
           ))}
         </svg>
+        {pending &&
+          n > 0 &&
+          [...pending].map((b) => (
+            <div key={`p${b}`} className="pending-hatch pointer-events-none absolute top-0 bottom-0" style={{ left: `${((b - 1) / n) * 100}%`, width: `max(3px, ${100 / n}%)` }} data-pending-bar={b} />
+          ))}
         {selected && n > 0 && (
           <div
             className="pointer-events-none absolute top-0 bottom-0 border-x border-ink/60 bg-ink/5"
@@ -91,8 +101,13 @@ export function ConfidenceStrip({
           </span>
         ))}
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-[2px] bg-ink" aria-hidden /> Manual marker
+          <span className="h-2.5 w-[2px] bg-ink" aria-hidden /> Marker
         </span>
+        {pending && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="pending-hatch h-2.5 w-3 rounded-sm" aria-hidden /> Pending marker: recompute to apply
+          </span>
+        )}
       </div>
     </div>
   );

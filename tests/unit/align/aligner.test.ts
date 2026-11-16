@@ -130,7 +130,7 @@ describe("Aligner interface, progress and cancellation", () => {
   it("alignInWorker runs on the main thread when Worker is unavailable", async () => {
     expect(typeof Worker).toBe("undefined");
     const original = audio.samples;
-    const sync = await alignInWorker(infoMap, audio);
+    const sync = await alignInWorker(infoMap, audio, undefined, undefined, { method: "chroma-dtw" });
     expect(sync).toEqual(detail.sync);
     expect(audio.samples).toBe(original);
   });
@@ -147,7 +147,7 @@ describe("Aligner interface, progress and cancellation", () => {
           }
         },
       );
-      expect(await alignInWorker(infoMap, audio)).toEqual(detail.sync);
+      expect(await alignInWorker(infoMap, audio, undefined, undefined, { method: "chroma-dtw" })).toEqual(detail.sync);
       expect(warn).toHaveBeenCalledWith("[align] worker unavailable, running on the main thread:", "blocked by CSP");
 
       // the script 404s: onerror fires before the worker says anything
@@ -163,7 +163,7 @@ describe("Aligner interface, progress and cancellation", () => {
           terminate() {}
         },
       );
-      expect(await alignInWorker(infoMap, audio)).toEqual(detail.sync);
+      expect(await alignInWorker(infoMap, audio, undefined, undefined, { method: "chroma-dtw" })).toEqual(detail.sync);
       expect(warn).toHaveBeenCalledWith("[align] worker unavailable, running on the main thread:", "the worker script failed to load");
     } finally {
       vi.unstubAllGlobals();
@@ -183,7 +183,9 @@ describe("Aligner interface, progress and cancellation", () => {
     });
     vi.resetModules();
     await import("@/lib/align/worker");
-    scope.onmessage!({ data: { type: "align", infoMap, samples: audio.samples.slice(), sampleRate: audio.sampleRate, durationSec: audio.durationSec } });
+    scope.onmessage!({
+      data: { type: "align", infoMap, samples: audio.samples.slice(), sampleRate: audio.sampleRate, durationSec: audio.durationSec, options: { method: "chroma-dtw" } },
+    });
     const result = await done;
     expect(result).toEqual(detail.sync);
     expect(posted.some((m) => m.type === "progress")).toBe(true);
