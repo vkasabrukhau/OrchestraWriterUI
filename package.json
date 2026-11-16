@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:aws": "node --env-file=.env.aws node_modules/next/dist/bin/next dev",
+    "dev:aws": "node scripts/dev-aws.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
