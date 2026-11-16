@@ -28,7 +28,9 @@ Google sign-in pair. Then `npm run db:ping:aws` and `npm run dev:aws`. Plain
 `npm run dev` still uses the docker compose stack. This repo is public: never
 commit `.env.aws` or paste its values into a tracked file.
 
-`dev:aws` migrates the shared database on boot like the deployed server does.
+`dev:aws` migrates the shared database on boot like the deployed server does,
+with the migrations of whatever branch is checked out: an unmerged branch's
+migration lands in the shared database too.
 Migrations here are additive (new tables, nullable columns), so the deployed
 app keeps working; do not add a destructive one without coordinating.
 
