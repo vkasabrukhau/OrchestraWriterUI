@@ -1,4 +1,4 @@
-# 0023. Redline aligner as a selectable experiment
+# 0026. Redline aligner as a selectable experiment
 
 Date: 2026-11-13
 Status: proposed

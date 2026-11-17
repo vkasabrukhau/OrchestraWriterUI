@@ -92,3 +92,24 @@ Append-only. Newest entry at the bottom. Written by `/handoff`.
   - Tchaikovsky 6: 288/290 consensus bars within 100 ms, mean 21 ms, median 4 ms from the Python reference, 22 s.
   - Romeo and Juliet: 393/426, mean 40 ms, 26 s.
 - Edited recordings: passage played twice 281/285; cut with two markers 283/285.
+
+## 2026-11-16 — Merged with main on `integrate/redline-sync` (Customize redesign, deploy fixes)
+
+**Done**
+- Merged `feat/redline-sync` with `main` (Sherry's Customize editor and panel splitters, Sulaiman's deploy fixes). No conflicts.
+- The redline experiment ADR is now **0026** (`0023` on main is "Customize matches Sync"). The "ADR 0023" in the first entry above and in the reviewer's agent memory means 0026.
+- `tests/unit/score/helpers.ts`: the fixtures path no longer uses `new URL(...)`, which jsdom's `URL` broke ("The URL must be of scheme file"). This was the failure that kept the CI workflow red on main.
+- End-to-end suite brought in line with this branch: `playwright.config.ts` starts the server with `SAMPLE_PROJECT=off` (as `tests/api` does), and the three Sync specs click "Start sync" through a `startSync` helper while the aligner experiment is on.
+- STATE.md updated for the merge.
+
+**Open questions / blockers**
+- Merging to main deploys: every user of the deployed site gets the sample project (a commercial recording) unless `SAMPLE_PROJECT=off` is set on App Runner. Human decision (STATE.md question 10).
+- Next.js 16.4.3 has a moderate advisory (GHSA-mfr8-8qww-v76h); 16.4.6 fixes it. Not changed here.
+- Earlier questions still stand (old info maps, hand-annotated truth, redline license and markers).
+
+**Verified by**
+- `npm run lint`, `npm run typecheck`, `npm run build`: clean.
+- `npm test`: 55 files, 494 passed. `npm run test:api`: 59 passed.
+- `npm run test:e2e`: 15/15 passed (before the two e2e changes, 7 failed: 4 on the sample project in a new library, 3 waiting for auto-start).
+- Not done: a manual look at the Sync page with the Tchaikovsky pair in a browser.
+

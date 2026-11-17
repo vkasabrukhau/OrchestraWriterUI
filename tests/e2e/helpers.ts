@@ -328,3 +328,13 @@ export async function pickColor(page: Page, label: string, hex: string, scope = 
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }, hex);
 }
+
+/**
+ * Start the first sync on the Sync page. While the aligner experiment is on
+ * (ADR 0026, `REDLINE_EXPERIMENT`), Sync waits for "Start sync" with the
+ * default aligner (Smooth) instead of aligning by itself. When the experiment
+ * is removed and auto-start returns, delete this helper and its calls.
+ */
+export async function startSync(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Start sync" }).click();
+}
