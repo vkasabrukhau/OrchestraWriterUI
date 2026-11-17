@@ -179,7 +179,7 @@ The core idea is unchanged. These are the changes to scope and approach:
 | Valiantsin (Val) Kasabrukhau | Worked on making sure that CI was pulled in properly, conducted subtractive changes on the code and streamlined the repo. Helped Lucas with audio syncing and merged Lucas’s changes for the mechanics in with the rest of the UI and AWS CI/CD changes. |
 | Xuerui (Sherry) He | Redesigned Customize as a desktop-style editor from the Figma mockup: menu bar and tool bar on one command list, undo/redo, Instruments, Properties and part-lane panels, narrow layouts, tints and the color-blind-safe palette. Fixed the reviewer's findings, measured 64-part performance, and made Customize consistent with Sync with draggable panel borders. Wrote ADRs 0022–0023. Built the pitch-encoding study mockup. Prepared the MS1 and MS2 submissions. |
 | Zehavi Rodriguez | **TODO** |
-| Stella Wang | **TODO** |
+| Stella Wang | Updated the UI design principles and color choices, worked closely with Lucas to iterate on multiple different visual directions, prototyped interactions to get a feel for the user experience |
 | Sulaiman Khydyr uulu | Connected the repo to the shared AWS stack. Right-sized and fixed the App Runner deployment: image build, rollback detection, `0.0.0.0` binding, `GET /` health. Added `dev:aws`. On `sulaiman/audio-to-score`: built the experimental transcription pipeline, with MuScriptor on an on-demand GPU instance, part naming and ordering, beat-grid bar lines, bar corrections, sync from the transcription, and API and e2e tests. |
 
 ## 5. Plan for the final submission
