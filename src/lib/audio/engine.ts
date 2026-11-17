@@ -204,6 +204,230 @@ export function createRecordingEngine(url: string): AudioEngine {
   return engine;
 }
 
+/* ------------------------------------------------------------------ */
+/* Recording from the decoded audio (Web Audio)                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The recording played from its decoded PCM, so the playhead is exact after
+ * any jump.
+ *
+ * Why not <audio>: browsers seek a variable-bitrate MP3 by estimating the
+ * byte offset (from its Xing table or the average bitrate) and then report
+ * the requested time, not the time actually reached. On a real upload this
+ * put the music 2.3 s ahead of the reported position after a jump to bar 19
+ * (−3.5…+2.3 s along the file) until playback had passed through, so the
+ * cursor and the glow ran visibly out of time with the sound. Here the
+ * position comes from the AudioContext clock: `anchor + (now − started) ×
+ * rate`, and a jump starts a new source at that exact sample.
+ *
+ * The decoded buffer is the one alignment and the waveform already use
+ * (`loadBuffer`), so nothing is decoded twice. If it cannot be loaded, the
+ * engine falls back to streaming the file with <audio> (createRecordingEngine).
+ *
+ * Trade-off: Web Audio changes pitch with the playback rate (an <audio>
+ * element keeps it), so at speeds other than 1× the recording sounds lower or
+ * higher.
+ */
+export function createBufferedRecordingEngine(url: string, loadBuffer: () => Promise<AudioBuffer | null>): AudioEngine {
+  let fallback: AudioEngine | null = null;
+  let buffer: AudioBuffer | null = null;
+  let ctx: AudioContext | null = null;
+  let gain: GainNode | null = null;
+  let source: AudioBufferSourceNode | null = null;
+  let loadPromise: Promise<void> | null = null;
+  let destroyed = false;
+  let playing = false;
+  let started = false;
+  let atEnd = false;
+  let anchor = 0; // recording seconds at anchorCtx
+  let anchorCtx = 0; // AudioContext time when the current source starts
+  let rate = 1;
+  let volume = 1;
+  let muted = false;
+  let playToken = 0;
+  let errorHandler: ((message: string) => void) | null = null;
+  let currentUrl = url;
+  // settings made before the fallback engine existed are replayed onto it
+  const pendingSettings = () => {
+    fallback?.setRate(rate);
+    fallback?.setVolume(volume);
+    fallback?.setMuted(muted);
+    fallback?.setErrorHandler?.(errorHandler);
+  };
+
+  const duration = () => buffer?.duration ?? 0;
+  const position = () => {
+    if (!playing || !started || !ctx) return anchor;
+    return Math.min(duration(), anchor + Math.max(0, ctx.currentTime - anchorCtx) * rate);
+  };
+  const applyGain = () => {
+    if (!ctx || !gain) return;
+    gain.gain.setTargetAtTime(muted ? 0 : volume, ctx.currentTime, 0.015);
+  };
+  const stopSource = () => {
+    const s = source;
+    source = null;
+    if (!s) return;
+    s.onended = null;
+    try {
+      s.stop();
+    } catch {
+      /* never started */
+    }
+    try {
+      s.disconnect();
+    } catch {
+      /* already gone */
+    }
+  };
+  const startSource = (from: number) => {
+    if (!ctx || !gain || !buffer) return;
+    stopSource();
+    const s = ctx.createBufferSource();
+    s.buffer = buffer;
+    s.playbackRate.value = rate;
+    s.connect(gain);
+    anchor = Math.max(0, Math.min(buffer.duration, from));
+    anchorCtx = ctx.currentTime + 0.02;
+    s.onended = () => {
+      if (source !== s) return;
+      // reached the end of the recording
+      anchor = duration();
+      playing = false;
+      started = false;
+      atEnd = true;
+      source = null;
+    };
+    s.start(anchorCtx, anchor);
+    source = s;
+  };
+
+  return {
+    kind: "recording",
+    get duration() {
+      return fallback ? fallback.duration : duration();
+    },
+    load() {
+      if (loadPromise) return loadPromise;
+      loadPromise = loadBuffer()
+        .catch(() => null)
+        .then(async (b) => {
+          if (destroyed) return;
+          if (b && b.duration > 0) {
+            buffer = b;
+            return;
+          }
+          // no decoded audio: stream the file instead
+          fallback = createRecordingEngine(currentUrl);
+          pendingSettings();
+          await fallback.load();
+          if (anchor > 0) fallback.seek(anchor);
+        });
+      return loadPromise;
+    },
+    play() {
+      if (destroyed) return Promise.reject(new Error("The audio engine was closed."));
+      if (fallback) return fallback.play();
+      if (playing) return Promise.resolve();
+      if (!buffer) return Promise.reject(new Error("The recording is still loading."));
+      // create and resume inside the user gesture
+      if (!ctx) ctx = getAudioContext();
+      if (!gain) {
+        gain = ctx.createGain();
+        gain.gain.value = muted ? 0 : volume;
+        gain.connect(ctx.destination);
+      }
+      const c = ctx;
+      const resumed = c.state === "running" ? Promise.resolve() : c.resume();
+      if (atEnd || anchor >= duration()) {
+        anchor = 0;
+        atEnd = false;
+      }
+      playing = true;
+      started = false;
+      const token = ++playToken;
+      return resumed.then(() => {
+        if (!playing || token !== playToken || destroyed) return;
+        started = true;
+        startSource(anchor);
+      });
+    },
+    pause() {
+      if (fallback) return fallback.pause();
+      if (!playing) return;
+      anchor = position();
+      playing = false;
+      started = false;
+      stopSource();
+    },
+    seek(t) {
+      if (fallback) return fallback.seek(t);
+      const target = Math.max(0, buffer ? Math.min(buffer.duration, t) : t);
+      atEnd = buffer ? target >= buffer.duration : false;
+      if (playing && started) startSource(target);
+      else anchor = target;
+    },
+    setRate(r) {
+      const next = r > 0 ? r : 1;
+      if (fallback) return fallback.setRate(next);
+      if (next === rate) return;
+      if (playing && started) {
+        const pos = position();
+        rate = next;
+        startSource(pos);
+      } else {
+        rate = next;
+      }
+    },
+    setVolume(v) {
+      volume = Math.max(0, Math.min(1, v));
+      if (fallback) return fallback.setVolume(volume);
+      applyGain();
+    },
+    setMuted(m) {
+      muted = m;
+      if (fallback) return fallback.setMuted(m);
+      applyGain();
+    },
+    currentTime() {
+      return fallback ? fallback.currentTime() : position();
+    },
+    ended() {
+      return fallback ? fallback.ended() : atEnd || (buffer !== null && position() >= buffer.duration);
+    },
+    paused() {
+      return fallback ? (fallback.paused?.() ?? false) : !playing;
+    },
+    replaceSource(next) {
+      // the decoded audio does not depend on the link; only the fallback streams it
+      currentUrl = next;
+      fallback?.replaceSource?.(next);
+    },
+    setErrorHandler(handler) {
+      errorHandler = handler;
+      fallback?.setErrorHandler?.(handler);
+    },
+    destroy() {
+      destroyed = true;
+      playing = false;
+      stopSource();
+      const g = gain;
+      gain = null;
+      // the shared AudioContext stays open for the next engine
+      setTimeout(() => {
+        try {
+          g?.disconnect();
+        } catch {
+          /* already gone */
+        }
+      }, 50);
+      fallback?.destroy();
+      buffer = null;
+    },
+  };
+}
+
 function clampTime(t: number, duration: number) {
   const max = Number.isFinite(duration) && duration > 0 ? duration : Infinity;
   return Math.max(0, Math.min(max, t));

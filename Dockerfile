@@ -40,6 +40,8 @@ COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 # Also listed in outputFileTracingIncludes; copied explicitly so migrations never go missing.
 COPY --from=build --chown=node:node /app/src/server/db/sql ./src/server/db/sql
+# The sample project's score, recording and sync (services/sample-project.ts reads them at runtime).
+COPY --chown=node:node fixtures/sample ./fixtures/sample
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s \

@@ -47,6 +47,11 @@ export interface ApiClient {
   deleteProject(id: string): Promise<void>;
   /** presign → PUT to S3 → register → mirror the server parse job */
   uploadScore(projectId: string, file: File): Promise<Job<ParseScoreResult>>;
+  /**
+   * Put the sample score and recording (Tchaikovsky 6 · Hallé) into the
+   * project, as if uploaded; the job tracks the score parse like uploadScore.
+   */
+  addSampleFiles(projectId: string): Promise<Job<ParseScoreResult>>;
   /** presign → PUT to S3 → decode for duration + peaks → register */
   uploadAudio(projectId: string, file: File): Promise<Job<AudioUploadResult>>;
   removeAudio(projectId: string): Promise<ProjectDto>;
@@ -63,6 +68,12 @@ export interface ApiClient {
   startAlignment(projectId: string, input?: AlignJobInput): Promise<Job<AlignResult>>;
   /** detailed min/max peaks of the recording for the zoomable waveform (null when unavailable) */
   loadRecordingPeaks(projectId: string, signal?: AbortSignal): Promise<PeakPyramid | null>;
+  /**
+   * The decoded recording (shared with alignment and the waveform) for
+   * sample-accurate playback; null when unavailable (the player then streams
+   * the file with <audio>).
+   */
+  loadRecordingBuffer(projectId: string, signal?: AbortSignal): Promise<AudioBuffer | null>;
   exportMp4(options: ExportMp4Options): Promise<Job<ExportResult>>;
   exportProjectFile(projectId: string, filename: string): Promise<Job<ExportResult>>;
   openProjectFile(file: File): Promise<Job<OpenProjectResult>>;

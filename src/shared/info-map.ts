@@ -28,6 +28,10 @@ export interface Note {
   styleMarking: StyleMarking | null;
   /** 1-based measure number */
   measure: number;
+  /** staff within a multi-staff part (absent = 1); the aligner models each staff separately */
+  staff?: number;
+  /** <unpitched> percussion: `pitch` is a placeholder (60) and carries no pitch information */
+  unpitched?: true;
 }
 
 export interface Instrument {
@@ -72,6 +76,23 @@ export interface ScoreTiming {
   tempo: Array<{ time: number; bpm: number }>;
   /** spans of notes or rests carrying a fermata, score seconds, merged across parts */
   fermatas: Array<{ start: number; end: number }>;
+  /**
+   * Written loudness per staff for the aligner's expected-loudness model:
+   * every dynamic mark (music21 volume scalar, ppp…ffff and sf/fp kept apart)
+   * and hairpins. Absent in info maps saved before it existed.
+   */
+  expression?: ExpressionStaff[];
+}
+
+export interface ExpressionStaff {
+  /** Instrument.id */
+  part: string;
+  /** 1-based staff (Note.staff, absent = 1) */
+  staff: number;
+  /** score seconds, music21 Dynamic.volumeScalar (0–1) */
+  dynamics: Array<{ time: number; scalar: number }>;
+  /** hairpins in score seconds, from the first spanned note to the last */
+  hairpins: Array<{ start: number; end: number; crescendo: boolean }>;
 }
 
 export interface InfoMap {

@@ -51,8 +51,8 @@ export interface AudioUploadResult {
 /** What a sync run covers: no range = the whole piece. */
 export interface AlignJobInput {
   range?: { from: number; to: number };
-  /** "smooth" (default) or "rigid" (not available yet) */
-  style?: "smooth" | "rigid";
+  /** "smooth" (default), "rigid" (not available yet) or "redline" (experiment) */
+  style?: "smooth" | "rigid" | "redline";
 }
 
 export interface AlignResult {

@@ -302,6 +302,21 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
       return startJob<ParseScoreResult>("upload-score", (ctx) => uploadAndParseScore(projectId, file, file.name, ctx, 0, 1));
     },
 
+    async addSampleFiles(projectId) {
+      return startJob<ParseScoreResult>("upload-score", async (ctx) => {
+        ctx.report(0.05, "Copying the sample score and recording");
+        // the recording changes: a cached decode of the old one must not be reused
+        evictAudio(projectId);
+        const { job: remote } = await request<RegisterScoreResponse>(`/projects/${enc(projectId)}/sample-files`, { method: "POST" });
+        invalidate(projectId);
+        const final = await pollRemoteJob<ParseScoreResult>(ctx.id, remote.id, 0.3, 1, ctx.signal);
+        invalidate(projectId);
+        if (final.status === "failed") throw new Error(final.error ?? "The sample score could not be parsed");
+        if (!final.result) throw new Error("The parse job finished without a result");
+        return final.result;
+      });
+    },
+
     async uploadAudio(projectId, file) {
       return startJob<AudioUploadResult>("upload-audio", (ctx) => uploadAndRegisterAudio(projectId, file, file.name, file.type || "audio/mpeg", ctx, 0, 1));
     },
@@ -320,6 +335,8 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
     saveDisplay,
 
     // processing
+    loadRecordingBuffer: (projectId, signal) => loadAudioBuffer(projectId, signal),
+
     async loadRecordingPeaks(projectId, signal) {
       const cached = peakCache.get(projectId);
       if (cached) return cached;
@@ -350,6 +367,8 @@ export function createHttpApi(options: HttpApiOptions = {}): ApiClient {
           range,
           style: input.style ?? "smooth",
           markers: nextApplied,
+          previousMarkers: applied,
+          previousMethod: prev?.method,
           onProgress: scaled(ctx.report, 0.12, 0.92),
           signal: ctx.signal,
         });

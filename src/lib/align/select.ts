@@ -8,8 +8,9 @@ import type { InfoMap } from "@/shared/info-map";
 import type { AlignAudio, AlignProgress, SyncState } from "@/shared/sync";
 import { CHROMA_DTW_METHOD, createChromaDtwAligner, type ChromaDtwOptions } from "./index";
 import { INTEGRATED_METHOD, createIntegratedAligner, type IntegratedOptions } from "./integrated";
+import { REDLINE_METHOD, createRedlineAligner } from "./redline";
 
-export type AlignMethod = typeof INTEGRATED_METHOD | typeof CHROMA_DTW_METHOD;
+export type AlignMethod = typeof INTEGRATED_METHOD | typeof CHROMA_DTW_METHOD | typeof REDLINE_METHOD;
 export const DEFAULT_ALIGN_METHOD: AlignMethod = INTEGRATED_METHOD;
 
 export interface AlignOptions extends ChromaDtwOptions, IntegratedOptions {
@@ -28,11 +29,13 @@ export async function runAlignment(
   const { method = DEFAULT_ALIGN_METHOD, noFallback = false, ...rest } = options;
   const chroma = () => createChromaDtwAligner(rest).align(infoMap, audio, onProgress, signal);
   if (method === CHROMA_DTW_METHOD) return chroma();
+  // redline (experiment): markers are not passed to it
+  const primary = method === REDLINE_METHOD ? createRedlineAligner({ verbose: true }) : createIntegratedAligner(rest);
   try {
-    return await createIntegratedAligner(rest).align(infoMap, audio, onProgress, signal);
+    return await primary.align(infoMap, audio, onProgress, signal);
   } catch (err) {
     if ((err instanceof Error && err.name === "AbortError") || noFallback) throw err;
-    console.warn("[align] integrated aligner failed, falling back to chroma DTW:", err instanceof Error ? err.message : err);
+    console.warn(`[align] ${method} aligner failed, falling back to chroma DTW:`, err instanceof Error ? err.message : err);
     return chroma();
   }
 }

@@ -13,7 +13,7 @@
  *   follows the user's correction.
  */
 import type { InfoMap } from "@/shared/info-map";
-import { markerPosition, type ManualMarker } from "@/shared/sync";
+import { MIN_ALIGNMENT_GAP, markerPosition, type ManualMarker, type MeasureAlignment } from "@/shared/sync";
 import { interp } from "./integrated/signal";
 
 export interface AlignAnchor {
@@ -25,6 +25,8 @@ export interface AlignAnchor {
 
 /** Anchors closer than this in score time are one note; the later edit is kept. */
 const SAME_NOTE_SEC = 1e-6;
+/** Score seconds over which an anchor's correction fades out beyond the outermost anchors (anchorMapping). */
+export const ANCHOR_TAPER_SEC = 30;
 /** Smallest recording gap per second of score between consecutive anchors (a 20× speed-up). */
 const MIN_RATE = 0.05;
 
@@ -116,8 +118,9 @@ export function anchorColumnBounds(
 /**
  * A score→recording mapping re-timed so it passes through every anchor:
  * proportionally between two anchors (in the mapping's own time, as
- * mergeAlignment does), shifted before the first and after the last. Anchor
- * points are inserted. The input must be increasing in both clocks.
+ * mergeAlignment does); before the first and after the last, shifted by that
+ * anchor's correction fading to nothing over ANCHOR_TAPER_SEC of score.
+ * Anchor points are inserted. The input must be increasing in both clocks.
  */
 export function anchorMapping(mapping: { score: number[]; recording: number[] }, anchors: AlignAnchor[]): { score: number[]; recording: number[] } {
   const lo = mapping.score[0];
@@ -126,9 +129,13 @@ export function anchorMapping(mapping: { score: number[]; recording: number[] },
   if (inside.length === 0) return mapping;
   const base = (s: number) => interp(s, mapping.score, mapping.recording);
   const at = inside.map((a) => ({ s: a.scoreSec, b: base(a.scoreSec), r: a.sec }));
+  // Outside the outermost anchors the correction fades out over TAPER_SEC of
+  // score: an anchor's residual against a coarse path is mostly that path's
+  // slack near the anchor, not evidence about bars far from it.
+  const fade = (d: number) => Math.max(0, 1 - d / ANCHOR_TAPER_SEC);
   const warp = (s: number): number => {
     const x = base(s);
-    if (s <= at[0].s) return x + (at[0].r - at[0].b);
+    if (s <= at[0].s) return x + (at[0].r - at[0].b) * fade(at[0].s - s);
     for (let k = 0; k + 1 < at.length; k++) {
       const a = at[k];
       const c = at[k + 1];
@@ -140,7 +147,7 @@ export function anchorMapping(mapping: { score: number[]; recording: number[] },
       }
     }
     const last = at[at.length - 1];
-    return x + (last.r - last.b);
+    return x + (last.r - last.b) * fade(s - last.s);
   };
   const score = [...mapping.score];
   for (const a of at) score.push(a.s);
@@ -151,4 +158,58 @@ export function anchorMapping(mapping: { score: number[]; recording: number[] },
     return exact ? exact.r : warp(s);
   });
   return { score: uniq, recording };
+}
+
+/** a bar whose start moved less than this between two runs counts as unchanged (localizeMarkerRun) */
+export const MARKER_REACH_TOLERANCE_SEC = 0.05;
+
+/**
+ * Keep a marker run's changes where the markers reach (ADR 0024).
+ *
+ * A run with new or moved markers re-solves the whole piece, so it can also
+ * move bars no marker supports: the broad path re-routes and the joint fit
+ * settles differently far away. Starting at each marker's bar (and the next
+ * one, for a marker inside a bar), the new timing is taken as far as it
+ * departs from the previous run by more than MARKER_REACH_TOLERANCE_SEC, plus
+ * one bar to close the seam; the previous timing stands elsewhere. A marker
+ * that exposes a large error therefore re-times as far as the departure
+ * runs, the whole piece if it does.
+ *
+ * `prev` and `next` are the aligner's bars (1-based `n`, same score). With no
+ * usable previous run, `next` is returned unchanged.
+ */
+export function localizeMarkerRun(prev: MeasureAlignment[], next: MeasureAlignment[], markerBars: number[]): MeasureAlignment[] {
+  if (prev.length !== next.length || prev.length === 0 || markerBars.length === 0) return next;
+  for (let i = 0; i < prev.length; i++) if (prev[i].n !== next[i].n) return next;
+  const n = next.length;
+  const moved = next.map((a, i) => Math.abs(a.startSec - prev[i].startSec) > MARKER_REACH_TOLERANCE_SEC);
+  const take = new Uint8Array(n);
+  for (const bar of markerBars) {
+    for (const seed of [bar - 1, bar]) {
+      if (seed < 0 || seed >= n) continue;
+      let lo = seed;
+      let hi = seed;
+      while (lo > 0 && moved[lo - 1]) lo--;
+      while (hi < n - 1 && moved[hi + 1]) hi++;
+      for (let i = Math.max(0, lo - 1); i <= Math.min(n - 1, hi + 1); i++) take[i] = 1;
+    }
+  }
+  const out = next.map((a, i) => (take[i] ? a : prev[i]));
+  // seams between kept and re-solved bars stay in order
+  for (let i = 1; i < n; i++) {
+    const min = out[i - 1].startSec + MIN_ALIGNMENT_GAP;
+    if (out[i].startSec < min) out[i] = { ...out[i], startSec: min };
+  }
+  return out;
+}
+
+/** Bars of markers added, moved or removed between two applied sets (by id, bar, position and time). */
+export function changedMarkerBars(before: ManualMarker[], after: ManualMarker[]): number[] {
+  const key = (m: ManualMarker) => `${m.id}|${m.measure}|${markerPosition(m)}|${m.startSec}`;
+  const a = new Set(before.map(key));
+  const b = new Set(after.map(key));
+  const bars = new Set<number>();
+  for (const m of after) if (!a.has(key(m))) bars.add(m.measure);
+  for (const m of before) if (!b.has(key(m))) bars.add(m.measure);
+  return [...bars].sort((x, y) => x - y);
 }

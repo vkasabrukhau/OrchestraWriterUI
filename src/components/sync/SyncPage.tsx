@@ -13,6 +13,7 @@ import { JobLine } from "@/components/export/shared";
 import { isRunning, isStarting, useProjectJob } from "@/components/import/projectJobs";
 import { SyncWorkspace } from "./workspace/SyncWorkspace";
 import { ContinueGuard } from "./workspace/ContinueGuard";
+import { AlignerChoice, REDLINE_EXPERIMENT, chosenAlignerStyle } from "./experiment/AlignerChoice";
 
 export function SyncPage({ projectId }: { projectId: string }) {
   const router = useRouter();
@@ -44,7 +45,7 @@ export function SyncPage({ projectId }: { projectId: string }) {
       startAlign(async () => {
         // the aligner keeps the server's manual markers: write pending edits first
         await useProject.getState().saveNow();
-        return api.startAlignment(projectId);
+        return REDLINE_EXPERIMENT ? api.startAlignment(projectId, { style: chosenAlignerStyle() }) : api.startAlignment(projectId);
       }).catch((err: unknown) => {
         setStartError(err instanceof Error ? err.message : "Auto-alignment could not start.");
       }),
@@ -61,7 +62,7 @@ export function SyncPage({ projectId }: { projectId: string }) {
     if (!next) return;
     void startAlign(async () => {
       await useProject.getState().saveNow();
-      return api.startAlignment(projectId, next);
+      return api.startAlignment(projectId, REDLINE_EXPERIMENT ? { ...next, style: chosenAlignerStyle() } : next);
     }).catch((err: unknown) => {
       queue.current = [];
       setStartError(err instanceof Error ? err.message : "The sync could not start.");
@@ -79,8 +80,9 @@ export function SyncPage({ projectId }: { projectId: string }) {
     queueRef.current = runNext;
   }, [runNext]);
 
-  // First visit with a recording and no alignment yet: align automatically, once.
-  const needsAlignment = hasRecording && Boolean(infoMap) && sync === null;
+  // First visit with a recording and no alignment yet: align automatically, once
+  // (with the aligner experiment on, the user picks the aligner and starts it).
+  const needsAlignment = !REDLINE_EXPERIMENT && hasRecording && Boolean(infoMap) && sync === null;
   const alignJobId = align.jobId;
   useEffect(() => {
     if (!needsAlignment || alignJobId || startError || isStarting(alignKey)) return;
@@ -130,6 +132,11 @@ export function SyncPage({ projectId }: { projectId: string }) {
                 <AlertTriangle size={15} className="mt-0.5 shrink-0 text-danger" aria-hidden />
                 {startError ?? align.job?.error ?? "The alignment did not finish."}
               </p>
+              {REDLINE_EXPERIMENT && (
+                <div className="mt-4">
+                  <AlignerChoice />
+                </div>
+              )}
               <div className="mt-5 flex flex-wrap gap-2">
                 <Button size="sm" leading={<RefreshCw size={13} />} onClick={runAlignment}>
                   Retry
@@ -142,7 +149,20 @@ export function SyncPage({ projectId }: { projectId: string }) {
           ) : (
             <>
               <p className="mt-2 text-sm text-ink-3">Every bar gets a start time in the recording and a confidence. This runs in your browser and takes a few seconds.</p>
-              <div className="mt-5">{align.job ? <JobLine job={align.job} /> : <p className="text-[13px] text-ink-3">Starting…</p>}</div>
+              <div className="mt-5">
+                {align.job ? (
+                  <JobLine job={align.job} />
+                ) : REDLINE_EXPERIMENT ? (
+                  <div className="space-y-3">
+                    <AlignerChoice />
+                    <Button size="sm" leading={<RefreshCw size={13} />} onClick={runAlignment}>
+                      Start sync
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-[13px] text-ink-3">Starting…</p>
+                )}
+              </div>
             </>
           )}
         </section>
@@ -160,15 +180,18 @@ export function SyncPage({ projectId }: { projectId: string }) {
       startError={startError}
       onRun={runInputs}
       toolbar={
-        <p className="flex flex-wrap items-center gap-x-1 text-[11px] text-ink-3">
-          <span className="truncate" title={summary.recordingName ?? undefined}>
-            {summary.recordingName ?? "Recording"}
-          </span>
-          ·<span className="tnum">{infoMap.measures.length} bars</span>·<span className="tnum">{Math.round(sync.averageConfidence)}% average confidence</span>·
-          <span className="tnum">
-            {sync.manual.length} manual {sync.manual.length === 1 ? "marker" : "markers"}
-          </span>
-        </p>
+        <>
+          <p className="flex flex-wrap items-center gap-x-1 text-[11px] text-ink-3">
+            <span className="truncate" title={summary.recordingName ?? undefined}>
+              {summary.recordingName ?? "Recording"}
+            </span>
+            ·<span className="tnum">{infoMap.measures.length} bars</span>·<span className="tnum">{Math.round(sync.averageConfidence)}% average confidence</span>·
+            <span className="tnum">
+              {sync.manual.length} manual {sync.manual.length === 1 ? "marker" : "markers"}
+            </span>
+          </p>
+          {REDLINE_EXPERIMENT && <AlignerChoice currentMethod={sync.method} />}
+        </>
       }
       actions={<ContinueGuard onContinue={goCustomize} onRecompute={runInputs} running={aligning} />}
     />

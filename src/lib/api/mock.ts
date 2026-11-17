@@ -246,6 +246,11 @@ export const mockApi: ApiClient = {
     for (const program of programs.values()) program.projectIds = program.projectIds.filter((pid) => pid !== id);
   },
 
+  async addSampleFiles() {
+    // the sample files live on the server (fixtures/sample)
+    throw new Error("The sample files need the real API: run without NEXT_PUBLIC_API_MOCK.");
+  },
+
   async uploadScore(projectId, file) {
     const tooBig = /mahler/i.test(file.name);
     const spec = BEETHOVEN_5;
@@ -361,6 +366,11 @@ export const mockApi: ApiClient = {
   // processing
   async loadRecordingPeaks() {
     // the mock has no decoded recording: the waveform uses the stored overview peaks
+    return null;
+  },
+
+  async loadRecordingBuffer() {
+    // no decoded recording in the mock: playback streams the file
     return null;
   },
 

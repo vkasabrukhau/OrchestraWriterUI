@@ -1,5 +1,5 @@
 import { louder, type Dynamic } from "../dynamics";
-import { MAX_PARTS, type InfoMap, type Instrument, type MeasureInfo, type Note, type StyleMarking } from "../info-map";
+import { MAX_PARTS, type ExpressionStaff, type InfoMap, type Instrument, type MeasureInfo, type Note, type StyleMarking } from "../info-map";
 import { classifyInstrument } from "../sections";
 import { decodeScoreBytes } from "./decode";
 import type { ParseInput, ParseOutcome, ScoreMeta } from "./index";
@@ -47,6 +47,13 @@ interface WrittenNote {
   /** note-level pizzicato="yes" */
   pizz: boolean;
   staff: string;
+  /** onset / duration from <type>, dots and tuplets (ignores <duration>); null when a note has no type */
+  typeOnsetQ: number | null;
+  typeDurQ: number | null;
+  /** "staff:voice" */
+  voice: string;
+  /** <unpitched> percussion (pitch is a placeholder) */
+  unpitched: boolean;
 }
 
 interface DynamicEvent {
@@ -55,6 +62,30 @@ interface DynamicEvent {
   set: Dynamic | null;
   /** momentary accent (sfz, fp, ...) applied to notes starting exactly here */
   accent: Dynamic | null;
+}
+
+/** A dynamic mark as the aligner's loudness model reads it (music21 volume scalar, per staff). */
+interface ExpressionMark {
+  offsetQ: number;
+  staff: string;
+  scalar: number;
+}
+
+/** A note or rest that a hairpin can attach to (re-timed with its voice in mixed-meter bars). */
+interface EventAnchor {
+  onsetQ: number;
+  typeOnsetQ: number | null;
+  voice: string;
+}
+
+/** A hairpin from the first note/rest after its start to the last one before its stop (music21's spanned elements). */
+interface WrittenWedge {
+  crescendo: boolean;
+  number: string;
+  staff: string;
+  complete: boolean;
+  start: { w: number; at: EventAnchor } | null;
+  stop: { w: number; at: EventAnchor } | null;
 }
 
 interface PizzEvent {
@@ -66,8 +97,15 @@ interface WrittenMeasure {
   label: string;
   extentQ: number;
   nominalQ: number | null;
+  /** measure length from note types instead of <duration> (null when some note has no type) */
+  typeExtentQ: number | null;
+  /** written length of each voice from note types ("staff:voice" → quarters) */
+  voiceTypeQ: Record<string, number>;
   notes: WrittenNote[];
+  /** every note/rest onset in document order (hairpin anchors) */
+  anchors: EventAnchor[];
   dynamics: DynamicEvent[];
+  marks: ExpressionMark[];
   pizz: PizzEvent[];
   tempos: Array<{ offsetQ: number; bpm: number }>;
   /** notes and rests carrying a fermata (quarters from the start of the written measure) */
@@ -149,10 +187,23 @@ export function parseMusicXml({ bytes, filename }: ParseInput): ParseOutcome {
     let len = first && first.extentQ > EPS ? first.extentQ : 0;
     if (len === 0) len = Math.max(0, ...written.map((p) => p[w]?.extentQ ?? 0));
     if (len === 0) len = nominalAt(written[0], w) ?? 4;
+    // A bar where parts are written in different meters (12/8 against 4/4):
+    // every voice fills the shared bar, so three eighths land on one common
+    // beat. Such bars often carry <duration> values that do not add up, so
+    // their voices are re-timed from the written note types.
+    const meters = written.map((p) => (p[w] ? nominalAt(p, w) : null));
+    const shared = meters[0] ?? len;
+    const mixed = meters.some((q) => q != null && Math.abs(q - shared) > 0.05 * shared);
+    if (mixed) len = shared;
     masterQ.push(len);
-    for (let p = 1; p < written.length; p++) {
+    for (let p = 0; p < written.length; p++) {
       const m = written[p][w];
-      if (m && m.extentQ > EPS && Math.abs(m.extentQ - len) > 1e-4) disagreements.push(`${first?.label ?? w + 1} (${partDefs[p].name})`);
+      if (!m) continue;
+      if (mixed && m.typeExtentQ != null) {
+        retimeVoices(m, len, meters);
+        continue;
+      }
+      if (p > 0 && m.extentQ > EPS && Math.abs(m.extentQ - len) > 1e-4) disagreements.push(`${first?.label ?? w + 1} (${partDefs[p].name})`);
     }
   }
   if (disagreements.length > 0) {
@@ -250,6 +301,7 @@ export function parseMusicXml({ bytes, filename }: ParseInput): ParseOutcome {
     timing: {
       tempo: tempoMap.breakpoints().map((p) => ({ time: round6(p.sec), bpm: round6(p.bpm) })),
       fermatas: fermataSpans(written, order, startQ, sec),
+      expression: partDefs.flatMap((def, p) => expressionStaves(def.id, written[p], read[p].wedges, order, startQ, sec)),
     },
   };
   const meta: ScoreMeta = {
@@ -336,6 +388,7 @@ function timewiseToPartwise(root: XEl): RawPart[] {
 
 interface ReadPartResult {
   measures: WrittenMeasure[];
+  wedges: WrittenWedge[];
   /** semitones from written to sounding pitch (first <transpose> in the part) */
   transpose: number;
 }
@@ -348,6 +401,8 @@ function readPart(part: RawPart, partName: string, warnings: string[]): ReadPart
   let nominal: number | null = null;
   let endingOpen: number[] | null = null;
   const out: WrittenMeasure[] = [];
+  const wedges: WrittenWedge[] = [];
+  let pendingWedges: WrittenWedge[] = [];
 
   const toQ = (durText: string): number => {
     const d = num(durText) ?? 0;
@@ -366,8 +421,12 @@ function readPart(part: RawPart, partName: string, warnings: string[]): ReadPart
       label: el.attrs.number ?? String(out.length + 1),
       extentQ: 0,
       nominalQ: nominal,
+      typeExtentQ: 0,
+      voiceTypeQ: {},
       notes: [],
+      anchors: [],
       dynamics: [],
+      marks: [],
       pizz: [],
       tempos: [],
       fermatas: [],
@@ -375,7 +434,31 @@ function readPart(part: RawPart, partName: string, warnings: string[]): ReadPart
     };
     let cursor = 0;
     let lastOnset = 0;
+    // the same walk measured in note types (see typeOnsetQ)
+    let typeCursor: number | null = 0;
+    let typeLast = 0;
     let endingClosedHere = false;
+    // last note/rest read in this measure (a hairpin stop attaches to it)
+    let lastEvent: EventAnchor | null = null;
+    const w = out.length;
+    const onWedge = (type: string, number: string, staff: string, atQ: number) => {
+      if (type === "crescendo" || type === "diminuendo") {
+        const wd: WrittenWedge = { crescendo: type === "crescendo", number, staff, complete: false, start: null, stop: null };
+        wedges.push(wd);
+        pendingWedges.push(wd);
+      } else if (type === "stop") {
+        const wd = wedges.find((x) => !x.complete && x.number === number);
+        if (!wd) return;
+        wd.complete = true;
+        // a stop before the bar's first note ends the hairpin at its own position (usually the barline)
+        if (lastEvent) wd.stop = { w, at: lastEvent };
+        else {
+          const at: EventAnchor = { onsetQ: atQ, typeOnsetQ: null, voice: "" };
+          m.anchors.push(at);
+          wd.stop = { w, at };
+        }
+      }
+    };
 
     for (const c of el.children) {
       switch (c.tag) {
@@ -409,9 +492,26 @@ function readPart(part: RawPart, partName: string, warnings: string[]): ReadPart
           const chord = child(c, "chord") !== undefined;
           const durQ = grace ? 0 : toQ(childText(c, "duration"));
           const onset = chord ? lastOnset : cursor;
+          const typeDur = grace ? 0 : writtenTypeQ(c, nominal);
+          if (typeDur == null) typeCursor = null;
+          const typeOnset = chord ? typeLast : typeCursor;
+          const voice = `${childText(c, "staff") || "1"}:${childText(c, "voice") || "1"}`;
           if (!chord) {
             lastOnset = cursor;
             if (!grace) cursor += durQ;
+            if (typeCursor != null && typeDur != null) {
+              typeLast = typeCursor;
+              typeCursor += typeDur;
+              m.typeExtentQ = Math.max(m.typeExtentQ ?? 0, typeCursor);
+              m.voiceTypeQ[voice] = (m.voiceTypeQ[voice] ?? 0) + typeDur;
+            }
+          }
+          if (!chord) {
+            const anchor: EventAnchor = { onsetQ: onset, typeOnsetQ: typeCursor == null ? null : typeOnset, voice };
+            m.anchors.push(anchor);
+            for (const wd of pendingWedges) wd.start = { w, at: anchor };
+            pendingWedges = [];
+            lastEvent = anchor;
           }
           m.extentQ = Math.max(m.extentQ, cursor, onset + durQ);
           if (durQ > 0 && childrenOf(c, "notations").some((n) => child(n, "fermata"))) m.fermatas.push({ onsetQ: onset, durQ });
@@ -431,19 +531,32 @@ function readPart(part: RawPart, partName: string, warnings: string[]): ReadPart
             style: styleOf(notations),
             pizz: c.attrs.pizzicato === "yes",
             staff: childText(c, "staff") || "1",
+            typeOnsetQ: typeCursor == null ? null : typeOnset,
+            typeDurQ: typeDur,
+            voice,
+            unpitched: child(c, "unpitched") !== undefined,
           });
           break;
         }
-        case "backup":
-          cursor = Math.max(0, cursor - toQ(childText(c, "duration")));
+        case "backup": {
+          const back = toQ(childText(c, "duration"));
+          if (typeCursor != null) typeCursor = cursor - back <= EPS ? 0 : Math.max(0, typeCursor - back);
+          cursor = Math.max(0, cursor - back);
           break;
+        }
         case "forward":
+          if (typeCursor != null) typeCursor += toQ(childText(c, "duration"));
           cursor += toQ(childText(c, "duration"));
           m.extentQ = Math.max(m.extentQ, cursor);
           break;
-        case "direction":
-          readDirection(c, cursor, m, partName, warnings);
+        case "direction": {
+          // <offset> places the direction away from the cursor (divisions; often
+          // negative for marks written at the end of the bar, e.g. a stepped rit.)
+          const offsetText = childText(c, "offset");
+          const at = offsetText ? Math.max(0, cursor + toQ(offsetText)) : cursor;
+          readDirection(c, at, m, partName, warnings, onWedge);
           break;
+        }
         case "sound":
           readSound(c, cursor, m, partName, warnings);
           break;
@@ -475,9 +588,10 @@ function readPart(part: RawPart, partName: string, warnings: string[]): ReadPart
     }
     if (endingClosedHere) endingOpen = null;
     if (m.bar.ending && m.bar.ending.length === 0) m.bar.ending = null;
+    if (typeCursor == null) m.typeExtentQ = null;
     out.push(m);
   }
-  return { measures: out, transpose: transpose ?? 0 };
+  return { measures: out, wedges, transpose: transpose ?? 0 };
 }
 
 const STEP_SEMITONES: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -572,11 +686,51 @@ export function mapDynamic(raw: string): { set: Dynamic | null; accent: Dynamic 
 
 const JUMP_WORDS = /\bD\.\s?C\.|\bD\.\s?S\.|da capo|dal segno|to coda/i;
 
-function readDirection(dir: XEl, cursor: number, m: WrittenMeasure, partName: string, warnings: string[]) {
+/**
+ * music21's Dynamic.volumeScalar for a marking (music21 9.x), which the
+ * reference alignment method uses as written loudness. Unknown marks are 0.5.
+ */
+const MUSIC21_SCALAR: Record<string, number> = {
+  pppp: 0.1,
+  ppp: 0.15,
+  pp: 0.25,
+  p: 0.35,
+  mp: 0.45,
+  mf: 0.55,
+  f: 0.7,
+  ff: 0.85,
+  fff: 0.9,
+  ffff: 0.95,
+  sf: 0.85,
+  sfz: 0.7,
+  sffz: 0.85,
+  fz: 0.7,
+  fp: 0.75,
+  sfp: 0.75,
+  n: 0,
+};
+
+export function music21Scalar(raw: string): number {
+  return MUSIC21_SCALAR[raw.trim().toLowerCase()] ?? 0.5;
+}
+
+function readDirection(
+  dir: XEl,
+  cursor: number,
+  m: WrittenMeasure,
+  partName: string,
+  warnings: string[],
+  onWedge?: (type: string, number: string, staff: string, atQ: number) => void,
+) {
   let tempo: number | null = null;
   let jumpWarned = false;
+  const staff = childText(dir, "staff") || "1";
   for (const dt of childrenOf(dir, "direction-type")) {
-    for (const d of childrenOf(dt, "dynamics")) pushDynamic(m, cursor, d);
+    for (const d of childrenOf(dt, "dynamics")) {
+      pushDynamic(m, cursor, d);
+      for (const e of d.children) m.marks.push({ offsetQ: cursor, staff, scalar: music21Scalar(e.tag === "other-dynamics" ? e.text : e.tag) });
+    }
+    for (const wd of childrenOf(dt, "wedge")) onWedge?.(wd.attrs.type ?? "", wd.attrs.number ?? "", staff, cursor);
     for (const r of childrenOf(dt, "rehearsal")) {
       const mark = r.text.trim();
       if (mark && m.rehearsal === undefined) m.rehearsal = mark.slice(0, 40);
@@ -634,6 +788,8 @@ interface Pending {
   style: StyleMarking | null;
   measure: number;
   order: number;
+  staff: string;
+  unpitched: boolean;
 }
 
 function emitNotes(part: WrittenMeasure[], order: number[], startQ: number[], sec: (q: number) => number): Note[] {
@@ -679,7 +835,7 @@ function emitNotes(part: WrittenMeasure[], order: number[], startQ: number[], se
         }
       }
       const style = n.style ?? (n.pizz || pizz ? "Pizzicato" : null);
-      const rec: Pending = { startQ: s, endQ: e, pitch: n.pitch, dynamics: noteDyn, style, measure: k + 1, order: seq++ };
+      const rec: Pending = { startQ: s, endQ: e, pitch: n.pitch, dynamics: noteDyn, style, measure: k + 1, order: seq++, staff: n.staff, unpitched: n.unpitched };
       pending.push(rec);
       if (n.tieStart && n.durQ > 0) openTies.set(key, rec);
       else openTies.delete(key);
@@ -698,7 +854,7 @@ function emitNotes(part: WrittenMeasure[], order: number[], startQ: number[], se
   pending.sort((a, b) => a.startQ - b.startQ || a.pitch - b.pitch || a.order - b.order);
   return pending.map((p) => {
     const t0 = sec(p.startQ);
-    return {
+    const note: Note = {
       time: t0,
       duration: round6(sec(p.endQ) - t0),
       pitch: p.pitch,
@@ -706,7 +862,57 @@ function emitNotes(part: WrittenMeasure[], order: number[], startQ: number[], se
       styleMarking: p.style,
       measure: p.measure,
     };
+    const staff = Number(p.staff);
+    if (Number.isInteger(staff) && staff > 1) note.staff = staff;
+    if (p.unpitched) note.unpitched = true;
+    return note;
   });
+}
+
+/**
+ * Per-staff written loudness for the aligner (ScoreTiming.expression): every
+ * dynamic mark with its music21 scalar, and hairpins between the notes they
+ * span, in playback order.
+ */
+function expressionStaves(
+  partId: string,
+  part: WrittenMeasure[],
+  wedges: WrittenWedge[],
+  order: number[],
+  startQ: number[],
+  sec: (q: number) => number,
+): ExpressionStaff[] {
+  const staves = new Map<string, ExpressionStaff>();
+  const staffOf = (s: string) => {
+    let e = staves.get(s);
+    if (!e) {
+      e = { part: partId, staff: Number(s) || 1, dynamics: [], hairpins: [] };
+      staves.set(s, e);
+    }
+    return e;
+  };
+  for (const m of part) for (const n of m.notes) staffOf(n.staff);
+  for (let k = 0; k < order.length; k++) {
+    for (const d of part[order[k]]?.marks ?? []) staffOf(d.staff).dynamics.push({ time: sec(startQ[k] + d.offsetQ), scalar: d.scalar });
+  }
+  for (const wd of wedges) {
+    if (!wd.start || !wd.stop) continue;
+    for (let k = 0; k < order.length; k++) {
+      if (order[k] !== wd.start.w) continue;
+      let k2 = k;
+      while (k2 < order.length && order[k2] !== wd.stop.w) k2++;
+      if (k2 >= order.length) continue;
+      const start = sec(startQ[k] + wd.start.at.onsetQ);
+      const end = sec(startQ[k2] + wd.stop.at.onsetQ);
+      if (end > start) staffOf(wd.staff).hairpins.push({ start, end, crescendo: wd.crescendo });
+    }
+  }
+  for (const e of staves.values()) {
+    // marks at the same instant: the louder one wins, as in the reference's sorted (time, scalar) pass
+    e.dynamics.sort((a, b) => a.time - b.time || a.scalar - b.scalar);
+    e.hairpins.sort((a, b) => a.start - b.start);
+  }
+  return [...staves.values()].sort((a, b) => a.staff - b.staff);
 }
 
 /** Fermata spans in score seconds, playback order, merged across parts. */
@@ -740,4 +946,66 @@ function clean(s: string): string {
 
 function dedupe(list: string[]): string[] {
   return [...new Set(list)];
+}
+
+/**
+ * Re-time one part's bar in a mixed-meter bar onto the shared bar length
+ * `len`: each voice whose written types add up to one of the bar's meters is
+ * stretched to fill `len` (a 12/8 voice by 4/6); other voices keep their
+ * typed lengths. Marks (dynamics, tempo, pizz., fermatas) scale with the bar.
+ */
+function retimeVoices(m: WrittenMeasure, len: number, meters: Array<number | null>) {
+  const fills = (t: number) => meters.some((q) => q != null && Math.abs(t - q) <= 1e-4) || Math.abs(t - len) <= 1e-4;
+  const factor = (voice: string) => {
+    const total = m.voiceTypeQ[voice] ?? 0;
+    return total > EPS && fills(total) ? len / total : 1;
+  };
+  for (const n of m.notes) {
+    if (n.typeOnsetQ == null || n.typeDurQ == null) continue;
+    const k = factor(n.voice);
+    n.onsetQ = n.typeOnsetQ * k;
+    n.durQ = n.typeDurQ * k;
+  }
+  for (const a of m.anchors) if (a.typeOnsetQ != null) a.onsetQ = a.typeOnsetQ * factor(a.voice);
+  const marks = m.extentQ > EPS ? len / m.extentQ : 1;
+  for (const d of m.marks) d.offsetQ *= marks;
+  for (const d of m.dynamics) d.offsetQ *= marks;
+  for (const p of m.pizz) p.offsetQ *= marks;
+  for (const t of m.tempos) t.offsetQ *= marks;
+  for (const f of m.fermatas) {
+    f.onsetQ *= marks;
+    f.durQ *= marks;
+  }
+  m.extentQ = len;
+}
+
+const TYPE_QUARTERS: Record<string, number> = {
+  maxima: 32,
+  long: 16,
+  breve: 8,
+  whole: 4,
+  half: 2,
+  quarter: 1,
+  eighth: 1 / 2,
+  "16th": 1 / 4,
+  "32nd": 1 / 8,
+  "64th": 1 / 16,
+  "128th": 1 / 32,
+  "256th": 1 / 64,
+};
+
+/** A note's written length from <type>, dots and <time-modification>; a typeless rest fills the bar. */
+function writtenTypeQ(note: XEl, nominal: number | null): number | null {
+  const type = childText(note, "type").trim();
+  if (!type) return child(note, "rest") ? (nominal ?? 4) : null;
+  const base = TYPE_QUARTERS[type];
+  if (base == null) return null;
+  let q = base * (2 - 0.5 ** childrenOf(note, "dot").length);
+  const tm = child(note, "time-modification");
+  if (tm) {
+    const actual = num(childText(tm, "actual-notes"));
+    const normal = num(childText(tm, "normal-notes"));
+    if (actual && normal) q *= normal / actual;
+  }
+  return q;
 }
