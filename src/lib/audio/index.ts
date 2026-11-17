@@ -13,6 +13,7 @@ export {
   type AudioBufferLike,
 } from "./decode";
 export {
+  createBufferedRecordingEngine,
   createRecordingEngine,
   createScoreSynthEngine,
   mediaErrorMessage,

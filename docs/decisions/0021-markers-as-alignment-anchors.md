@@ -1,7 +1,7 @@
 # 0021. Markers are fixed anchors inside the aligners
 
 Date: 2026-11-12
-Status: proposed (amends 0019; keeps 0018)
+Status: proposed (amends 0019; keeps 0018; amended by 0024)
 
 ## Context
 Before this change, the aligners never saw manual markers (ADR 0019: "the fit does not use the markers yet").

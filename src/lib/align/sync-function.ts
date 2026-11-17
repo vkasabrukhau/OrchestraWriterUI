@@ -1,7 +1,7 @@
 import type { InfoMap } from "@/shared/info-map";
 import { mergeAlignment, type AlignmentDiagnostics, type AlignProgress, type ManualMarker, type MeasureAlignment } from "@/shared/sync";
 import { toAlignAudio, type AudioBufferLike } from "@/lib/audio/decode";
-import { markerAnchors, shiftAnchors } from "./anchors";
+import { changedMarkerBars, localizeMarkerRun, markerAnchors, shiftAnchors } from "./anchors";
 import { CHROMA_DTW_METHOD } from "./index";
 import { methodForStyle, type SyncStyle } from "./methods";
 import { planRangeWindow, sliceInfoMap } from "./range";
@@ -26,6 +26,13 @@ export interface SyncFunctionInput {
   style: SyncStyle;
   /** the applied set this run will produce */
   markers: ManualMarker[];
+  /**
+   * The markers the previous run applied and its method. When only the
+   * markers changed, a whole-piece run keeps its changes where those markers
+   * reach (localizeMarkerRun, ADR 0024) and the previous timing elsewhere.
+   */
+  previousMarkers?: ManualMarker[];
+  previousMethod?: string;
   onProgress?: AlignProgress;
   signal?: AbortSignal;
 }
@@ -50,6 +57,12 @@ export async function runSync(input: SyncFunctionInput): Promise<SyncFunctionOut
 
   if (!range || (range.from <= 1 && range.to >= infoMap.measures.length)) {
     const result = await alignInWorker(infoMap, toAlignAudio(recording), onProgress, signal, { method: method.id, anchors, transferSamples: true });
+    const changed = input.previousMarkers && input.previousMethod === result.method ? changedMarkerBars(input.previousMarkers, input.markers) : [];
+    if (changed.length > 0 && input.auto.length === result.auto.length) {
+      const auto = localizeMarkerRun(input.auto, result.auto, changed);
+      const averageConfidence = Math.round(auto.reduce((s, a) => s + a.confidence, 0) / auto.length);
+      return { auto, method: result.method, fellBack: result.method === CHROMA_DTW_METHOD, diagnostics: result.diagnostics, averageConfidence };
+    }
     return { auto: result.auto, method: result.method, fellBack: result.method === CHROMA_DTW_METHOD, diagnostics: result.diagnostics, averageConfidence: result.averageConfidence };
   }
 

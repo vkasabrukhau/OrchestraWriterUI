@@ -1,7 +1,7 @@
 # 0014. Alignment: "Integrated tempo from original search", ported to the browser
 
 Date: 2026-11-03
-Status: proposed (default aligner on `feat/integrated-sync`; refines 0009)
+Status: proposed (default aligner on `feat/integrated-sync`; refines 0009; amended by 0024)
 
 ## Context
 Score Sync Lab's preferred method, **Integrated tempo from original search**

@@ -27,7 +27,9 @@ export function PlaybackSourceMount() {
     return null;
   }, [hasRecording, audioUrl, infoMap]);
   const refreshUrl = useCallback(async () => (projectId ? (await api.getProjectUrls(projectId, { fresh: true })).audio : null), [projectId]);
-  useAudioEngine(source, { refreshUrl });
+  // the decoded recording (shared with alignment and the waveform): exact playhead after any jump
+  const loadBuffer = useCallback(async () => (projectId ? api.loadRecordingBuffer(projectId) : null), [projectId]);
+  useAudioEngine(source, { refreshUrl, loadBuffer });
 
   const pathname = usePathname();
   const step = pathname?.split("/").filter(Boolean).pop() ?? "";

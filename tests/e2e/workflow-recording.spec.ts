@@ -1,4 +1,4 @@
-import { AUDIO_FILE, DEMO, SCORE_FILE, api, expect, open, pickColor, previewBar, projectIdFrom, reload, stepUrl, test } from "./helpers";
+import { AUDIO_FILE, DEMO, SCORE_FILE, api, expect, open, pickColor, previewBar, projectIdFrom, reload, stepUrl, test, startSync } from "./helpers";
 
 /** Violin I's part id in the demo score. */
 const VIOLIN_I = "P10";
@@ -37,6 +37,7 @@ test("a recording goes from upload through sync, display, preview and both expor
   let markerText = "";
 
   await test.step("auto-alignment finishes with an average confidence", async () => {
+    await startSync(page);
     await expect(page.getByText(/^\d+% average confidence$/)).toBeVisible({ timeout: 60_000 });
     await expect(page.getByText(`${DEMO.measures} bars`, { exact: true })).toBeVisible();
     await expect(sidebar.getByText(/^No markers yet/)).toBeVisible();

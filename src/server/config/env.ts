@@ -91,6 +91,10 @@ export const env = {
     publicEndpoint: s3PublicEndpoint,
   },
 
+  // Put the sample project (Tchaikovsky 6 · Hallé, fixtures/sample) in each
+  // user's library once, for manual testing. On unless SAMPLE_PROJECT=off.
+  sampleProject: process.env.SAMPLE_PROJECT !== "off",
+
   // Extra browser origins allowed to call /api/* with cookies, e.g. a frontend dev
   // server on another port. Comma-separated. Empty = same-origin only.
   corsOrigins: (process.env.CORS_ORIGINS ?? "")

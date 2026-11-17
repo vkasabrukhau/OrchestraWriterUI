@@ -25,6 +25,8 @@ import {
   str,
 } from "./validate";
 import { MAX_AUDIO_SECONDS } from "../storage/limits";
+import { env } from "../config/env";
+import { addSampleFiles, ensureSampleProject } from "../services/sample-project";
 
 export const projectsRoutes = new Hono<AuthEnv>();
 
@@ -36,6 +38,8 @@ const MAX_PEAKS = 4_096;
 const projectId = (c: Parameters<typeof idParam>[0]) => idParam(c, "id", "Project");
 
 projectsRoutes.get("/", async (c) => {
+  // every library starts with the sample project (once per user)
+  if (env.sampleProject) await ensureSampleProject(c.get("userId"));
   return c.json({ projects: await projects.listProjects(c.get("userId")) });
 });
 
@@ -77,6 +81,13 @@ projectsRoutes.post("/:id/score", async (c) => {
     key: str(body.key, "key", { min: 1, max: 1024, trim: false }),
     filename: str(body.filename, "filename", { min: 1, max: 255 }),
   });
+  return c.json(result, 202);
+});
+
+// The sample score and recording (Tchaikovsky 6 · Hallé, fixtures/sample) into
+// this project, as if uploaded: the response's job tracks the score parse.
+projectsRoutes.post("/:id/sample-files", async (c) => {
+  const result = await addSampleFiles(c.get("userId"), projectId(c));
   return c.json(result, 202);
 });
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, ArrowRight, AudioLines, FolderOpen, Music2, RefreshCw, Upload } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, AudioLines, FolderOpen, Music2, RefreshCw, Sparkles, Upload } from "lucide-react";
 import type { AudioUploadResult, Job, OpenProjectResult, ParseScoreResult } from "@/shared/jobs";
 import { api } from "@/lib/api";
 import { useProject } from "@/lib/store/project";
@@ -55,12 +55,28 @@ function useUpload<T>({
   onSucceeded: (job: Job<T>) => void | Promise<void>;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  /** name shown when the slot was filled by an action instead of a local file (the sample files) */
+  const [label, setLabel] = useState<string | null>(null);
   const [typeError, setTypeError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const { job, start: startJob, clear } = useProjectJob<T>(jobKey, { onSucceeded });
 
+  /** Fill the slot from an API action rather than a picked file. */
+  const submitWith = async (name: string, run: () => Promise<Job<T>>) => {
+    setFile(null);
+    setLabel(name);
+    setTypeError(null);
+    setStartError(null);
+    try {
+      await startJob(run);
+    } catch (err) {
+      setStartError(err instanceof Error ? err.message : "That could not start.");
+    }
+  };
+
   const submit = async (f: File) => {
     setFile(f);
+    setLabel(null);
     setStartError(null);
     if (!hasExtension(f.name, allowed)) {
       clear();
@@ -76,7 +92,7 @@ function useUpload<T>({
   };
   const retry = file && !typeError ? () => void submit(file) : undefined;
 
-  return { file, job, typeError, startError, submit, retry };
+  return { file, label, job, typeError, startError, submit, submitWith, retry };
 }
 
 /* ------------------------------------------------------------------ */
@@ -111,6 +127,12 @@ export function ImportPage({ projectId }: { projectId: string }) {
     typeMessage: AUDIO_TYPE_ERROR,
     onSucceeded: onAudioDone,
   });
+
+  const fillWithSample = () => {
+    // a new recording invalidates the old alignment; Sync starts a fresh one
+    forgetJob(`${projectId}:align`);
+    void score.submitWith(SAMPLE_SCORE_NAME, () => api.addSampleFiles(projectId));
+  };
 
   const hasScore = Boolean(summary?.scoreName);
   // A parse that started on an earlier visit (no local job): the server reports it.
@@ -195,11 +217,13 @@ export function ImportPage({ projectId }: { projectId: string }) {
         }
       />
 
+      <SampleFilesCard onUse={fillWithSample} busy={scorePhase === "processing" || audioPhase === "processing"} />
+
       <div className="grid gap-6 md:grid-cols-2">
         <ScoreCard
           upload={score}
           phase={scorePhase}
-          name={score.file?.name ?? summary?.scoreName ?? ""}
+          name={score.file?.name ?? score.label ?? summary?.scoreName ?? ""}
           facts={facts}
           serverMessage={serverParsing ? (summary?.statusDetail ?? "Parsing score") : null}
           serverError={serverFailed ? (summary?.statusDetail ?? "The score could not be read.") : null}
@@ -415,6 +439,41 @@ function RecordingCard({ upload, phase, name }: { upload: ReturnType<typeof useU
         disabled={busy}
         onChange={(e) => pickFrom(e.target, upload.submit)}
       />
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Sample files                                                         */
+/* ------------------------------------------------------------------ */
+
+/** The sample score's file name, shown while it is copied and parsed. */
+export const SAMPLE_SCORE_NAME = "symphony-no-6-opus-74-1st-movement-tchaikovsky.mxl";
+
+/**
+ * One click to fill both slots with the team's testing baseline (Tchaikovsky 6 · Hallé).
+ * TEMPORARY, REMOVE BEFORE AN OFFICIAL LAUNCH (see README.md).
+ */
+function SampleFilesCard({ onUse, busy }: { onUse: () => void; busy: boolean }) {
+  return (
+    <section className="card-flat p-5" aria-labelledby="sample-files-title">
+      <div className="flex flex-wrap items-center gap-4">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-paper-3 text-ink-2" aria-hidden>
+          <Sparkles size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 id="sample-files-title" className="font-serif text-lg text-ink">
+            Use the sample files
+          </h2>
+          <p className="text-[13px] text-ink-3">
+            Tchaikovsky, Symphony No. 6, first movement, with the Hallé recording: the team&apos;s baseline for testing. Replaces any score and
+            recording here.
+          </p>
+        </div>
+        <Button variant="primary" size="sm" leading={<Sparkles size={13} />} onClick={onUse} disabled={busy}>
+          Use sample files
+        </Button>
+      </div>
     </section>
   );
 }

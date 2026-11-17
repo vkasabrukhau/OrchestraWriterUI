@@ -1,4 +1,4 @@
-import { buildProject, expect, open, test } from "./helpers";
+import { buildProject, expect, open, test, startSync } from "./helpers";
 
 const SHOTS = process.env.SHOT_DIR;
 
@@ -16,6 +16,7 @@ test("Sync workspace: sections, right-click marker, pending until recompute", as
 
   const project = await buildProject(page.request, { recording: true });
   await open(page, `/projects/${project.id}/sync`);
+  await startSync(page);
 
   await test.step("one window with three sections and a sidebar", async () => {
     await expect(page.getByRole("region", { name: "Confidence map" })).toBeVisible({ timeout: 90_000 });

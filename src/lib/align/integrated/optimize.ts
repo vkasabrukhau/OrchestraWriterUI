@@ -445,6 +445,8 @@ export interface OptimizeInput {
   clock: ScoreClock;
   /** fermatas and ensemble gaps, quarter positions */
   protectedQuarters: Array<[number, number]>;
+  /** score-second spans of the seed that are DTW jumps (refineSeed): no tempo continuity across them (ADR 0024) */
+  breaks?: Array<[number, number]>;
   /** manual-marker anchors: a knot at each, held at its recording time (ADR 0021) */
   anchors?: Array<{ scoreSec: number; sec: number }>;
   onProgress?: (fraction: number, message: string) => void;
@@ -554,6 +556,16 @@ export function optimizeMapping(input: OptimizeInput): OptimizeResult {
   const isProtected = new Uint8Array(n - 1);
   for (const [a, b] of protectedQuarters) for (let k = 0; k < n - 1; k++) if (qs[k] < b - 1e-8 && qs[k + 1] > a + 1e-8) isProtected[k] = 1;
   const weights = Float64Array.from({ length: Math.max(0, n - 2) }, (_, t) => (isProtected[t] || isProtected[t + 1] ? PROTECTED_WEIGHT : 1));
+  // A jump the seed's DTW took (recording material the score lacks, or score
+  // the recording skips; coarse.ts) is a break in the music, not a tempo
+  // change: no continuity term spans it.
+  const isBreak = new Uint8Array(n - 1);
+  for (const [sa, sb] of input.breaks ?? []) {
+    const qa = clock.toQuarter(sa);
+    const qb = clock.toQuarter(sb);
+    for (let t = 0; t < n - 1; t++) if (qs[t] < qb - 1e-8 && qs[t + 1] > qa + 1e-8) isBreak[t] = 1;
+  }
+  for (let t = 0; t < weights.length; t++) if (isBreak[t] || isBreak[t + 1]) weights[t] = 0;
   const spacings = Float64Array.from({ length: Math.max(0, n - 2) }, (_, t) => (qs[t + 1] - qs[t] + (qs[t + 2] - qs[t + 1])) / 2);
 
   // 9.3 acoustic corridor around the seed

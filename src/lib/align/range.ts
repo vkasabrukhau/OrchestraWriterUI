@@ -32,6 +32,20 @@ export function sliceInfoMap(infoMap: InfoMap, from: number, to: number): InfoMa
     timing = {
       tempo: [{ time: 0, bpm: current }, ...inside],
       fermatas: timing.fermatas.filter((f) => f.end > t0 && f.start < t1).map((f) => ({ start: Math.max(0, f.start - t0), end: Math.min(t1, f.end) - t0 })),
+      ...(timing.expression
+        ? {
+            // the mark in force at `from` moves to 0; hairpins keep their true span (may start before 0)
+            expression: timing.expression.map((e) => {
+              const before = e.dynamics.filter((d) => d.time <= t0 + 1e-9);
+              const inForce = before.length ? [{ time: 0, scalar: before[before.length - 1].scalar }] : [];
+              return {
+                ...e,
+                dynamics: [...inForce, ...e.dynamics.filter((d) => d.time > t0 + 1e-9 && d.time < t1).map((d) => ({ time: d.time - t0, scalar: d.scalar }))],
+                hairpins: e.hairpins.filter((h) => h.end > t0 && h.start < t1).map((h) => ({ ...h, start: h.start - t0, end: h.end - t0 })),
+              };
+            }),
+          }
+        : {}),
     };
   }
   return { ...infoMap, instruments, measures, duration: t1 - t0, timing };

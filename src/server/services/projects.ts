@@ -266,6 +266,7 @@ export async function registerScore(
   userId: number,
   projectId: number,
   input: { key: string; filename: string },
+  options: { awaitParse?: boolean } = {},
 ): Promise<RegisterScoreResponse> {
   await ownedProject(userId, projectId);
   if (!isProjectObjectKey(input.key, userId, projectId, "score")) throw new ForbiddenKeyError();
@@ -304,7 +305,10 @@ export async function registerScore(
 
   await bestEffortDelete(oldKeys);
   // Fire and forget: the job row records progress and the outcome; clients poll GET /api/jobs/:id.
-  void runParseScore({ userId, projectId, jobId: job, scoreKey: input.key, filename: input.filename });
+  // The sample project waits for it (services/sample-project.ts).
+  const parse = runParseScore({ userId, projectId, jobId: job, scoreKey: input.key, filename: input.filename });
+  if (options.awaitParse) await parse;
+  else void parse;
 
   const [project, jobDto] = await Promise.all([getProject(userId, projectId), getJob(userId, job)]);
   return { project, job: jobDto };

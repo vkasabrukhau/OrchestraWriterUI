@@ -29,3 +29,11 @@ paths:
 - Applied markers are fixed anchors inside the aligners (ADR 0021,
   `src/lib/align/anchors.ts`): the fit passes through them and is refitted
   around them. Keep `mergeAlignment` as the final monotonic pass.
+- Markers re-time only as far as they reach (ADR 0024): when only the markers
+  changed, `runSync` keeps the new timing across the stretch connected to each
+  changed marker (`localizeMarkerRun`) and the previous timing elsewhere. The
+  DTWs may jump over recording material or skipped score, so any consistent
+  marker set has a path.
+- Accuracy claims need a real recording: compare with `scripts/eval-real.ts`
+  (reference table or consensus of two independent methods), not only the
+  synthetic demo.

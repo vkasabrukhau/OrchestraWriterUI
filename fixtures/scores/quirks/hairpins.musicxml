@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Written loudness for the aligner (ScoreTiming.expression): one part on two
+  staves, quarter = 60.
+  Staff 1: pp, then a crescendo from beat 2 to beat 3 (started before note 2,
+  stopped after note 3) followed by f; then a diminuendo whose start and stop
+  sit in the same bar as the next one's (bar 2).
+  Staff 2: its own mp; P2 has an unpitched snare note.
+  Bar 3: a crescendo over the whole bar, stopped at the start of bar 4 before
+  its first note (a hairpin to the barline): it ends at the barline.
+  Expected staff 1 hairpins: [1, 2] crescendo, [4, 5] diminuendo, [6, 7]
+  crescendo, [8, 12] crescendo.
+-->
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Piano</part-name></score-part>
+    <score-part id="P2"><part-name>Snare Drum</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves></attributes>
+      <direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>60</per-minute></metronome></direction-type><sound tempo="60"/></direction>
+      <direction><direction-type><dynamics><pp/></dynamics></direction-type><staff>1</staff></direction>
+      <direction><direction-type><dynamics><mp/></dynamics></direction-type><staff>2</staff></direction>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <direction><direction-type><wedge type="crescendo" number="1"/></direction-type><staff>1</staff></direction>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <direction><direction-type><wedge type="stop" number="1"/></direction-type><staff>1</staff></direction>
+      <direction><direction-type><dynamics><f/></dynamics></direction-type><staff>1</staff></direction>
+      <note><pitch><step>F</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <backup><duration>4</duration></backup>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>4</duration><voice>5</voice><type>whole</type><staff>2</staff></note>
+    </measure>
+    <measure number="2">
+      <direction><direction-type><wedge type="diminuendo" number="1"/></direction-type><staff>1</staff></direction>
+      <note><pitch><step>G</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <note><pitch><step>A</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <direction><direction-type><wedge type="stop" number="1"/></direction-type><staff>1</staff></direction>
+      <direction><direction-type><wedge type="crescendo" number="1"/></direction-type><staff>1</staff></direction>
+      <note><pitch><step>B</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <note><pitch><step>C</step><octave>6</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <direction><direction-type><wedge type="stop" number="1"/></direction-type><staff>1</staff></direction>
+      <backup><duration>4</duration></backup>
+      <note><pitch><step>D</step><octave>3</octave></pitch><duration>4</duration><voice>5</voice><type>whole</type><staff>2</staff></note>
+    </measure>
+    <measure number="3">
+      <direction><direction-type><wedge type="crescendo" number="1"/></direction-type><staff>1</staff></direction>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+    </measure>
+    <measure number="4">
+      <direction><direction-type><wedge type="stop" number="1"/></direction-type><staff>1</staff></direction>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>4</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+    <measure number="2">
+      <note><rest/><duration>4</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+    <measure number="3">
+      <note><rest/><duration>4</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+    <measure number="4">
+      <note><rest/><duration>4</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+  </part>
+</score-partwise>

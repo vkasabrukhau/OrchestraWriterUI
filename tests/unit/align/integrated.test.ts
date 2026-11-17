@@ -7,7 +7,7 @@ import { CONFIDENCE_BANDS, type AlignAudio } from "@/shared/sync";
 import { alignIntegrated, integratedAligner, protectedIntervals, type IntegratedDetail } from "@/lib/align/integrated";
 import { subsequenceDtw } from "@/lib/align/integrated/coarse";
 import { directObjective, optimizeTimesDirect, scoreClock, solvePentadiagonal } from "@/lib/align/integrated/optimize";
-import { quantizeChroma } from "@/lib/align/integrated/features";
+import { quantizeChroma, scoreFeatures } from "@/lib/align/integrated/features";
 import { runAlignment } from "@/lib/align/select";
 import { renderDemoRecording, type DemoTruth } from "../../../scripts/lib/demo-audio";
 
@@ -43,11 +43,13 @@ describe("integrated aligner on the warped demo recording", () => {
     expect(errors.reduce((s, e) => s + e, 0) / errors.length).toBeLessThan(0.04);
   });
 
-  it("improves on the broad 2 Hz match and accepts the joint fit", () => {
+  it("refines the broad 2 Hz match at 10 Hz and accepts the joint fit within the acoustic tolerance", () => {
     const d = detail.sync.diagnostics!;
     expect(d.accepted).toBe(true);
     expect(d.converged).toBe(true);
-    expect(d.acousticAfter).toBeLessThan(d.acousticBefore);
+    // the fit trades a little acoustic agreement for tempo continuity, never more than 0.02 (reference acceptance)
+    expect(d.acousticAfter).toBeLessThanOrEqual(d.acousticBefore + 0.02);
+    expect(detail.seed.score.length).toBeGreaterThan(detail.broadSeed.score.length);
     expect(d.maxShiftSec).toBeLessThanOrEqual(4);
     expect(detail.fit.stages.map((s) => s.costScaleSec)).toEqual([0.1, 0.04]);
   });
@@ -116,7 +118,7 @@ describe("integrated aligner on the warped demo recording", () => {
       const short: AlignAudio = { samples: audio.samples.slice(0, 33075), sampleRate: 22050, durationSec: 1.5 };
       const sync = await runAlignment(infoMap, short);
       expect(sync.method).toBe("chroma-dtw");
-      expect(warn).toHaveBeenCalledWith("[align] integrated aligner failed, falling back to chroma DTW:", expect.stringMatching(/2 seconds/));
+      expect(warn).toHaveBeenCalledWith("[align] integrated-tempo aligner failed, falling back to chroma DTW:", expect.stringMatching(/2 seconds/));
     } finally {
       warn.mockRestore();
     }
@@ -237,11 +239,29 @@ describe("integrated aligner building blocks (reference tests, guide Appendix C)
     for (let i = 0; i < n; i++) expect(solved[i]).toBeCloseTo(x[i], 10);
   });
 
-  it("quantizes chroma like Sync Toolbox, with silence as the uniform vector", () => {
+  it("quantizes chroma like Sync Toolbox, with silence as no evidence (all zeros)", () => {
     const raw = Float32Array.from([...[0.5, 0.25, 0.15, 0.06, 0.04, 0, 0, 0, 0, 0, 0, 0], ...new Array(12).fill(0)]);
     quantizeChroma(raw, 2);
     expect(Array.from(raw.slice(0, 12))).toEqual([1, 0.75, 0.5, 0.25, 0, 0, 0, 0, 0, 0, 0, 0]);
-    expect(Array.from(raw.slice(12))).toEqual(new Array(12).fill(0.25));
+    expect(Array.from(raw.slice(12))).toEqual(new Array(12).fill(0));
+  });
+
+  it("score chroma marks each sounding pitch once per 40 ms window (doublings count once, unpitched excluded)", () => {
+    const note = (pitch: number, extra: object = {}) => ({ time: 0.1, duration: 0.5, pitch, dynamics: "mf" as const, styleMarking: null, measure: 1, ...extra });
+    const base = { ...infoMap, duration: 1, timing: undefined };
+    const inst = (id: string, notes: object[]) => ({ ...infoMap.instruments[0], id, transpose: undefined, notes }) as InfoMap["instruments"][number];
+    const one = scoreFeatures({ ...base, instruments: [inst("A", [note(60), note(64)])] }, { transpose: {} });
+    const doubled = scoreFeatures({ ...base, instruments: [inst("A", [note(60), note(64)]), inst("B", [note(60)]), inst("C", [note(72, { unpitched: true })])] }, { transpose: {} });
+    expect(Array.from(doubled.chroma)).toEqual(Array.from(one.chroma));
+    // C and E share the frame equally; frames before the notes (and after the window) carry no evidence
+    expect(Array.from(one.chroma.slice(10 * 12, 11 * 12))).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]);
+    expect(Array.from(one.chroma.slice(0, 12))).toEqual(new Array(12).fill(0));
+    // Sync Toolbox's columns: floor(start / 20 ms) … floor(end / 20 ms) + 1, clipped to the matrix it
+    // sizes from the last note's end (ceil(600 / 20) = 30 columns): 100–600 ms → frames 5…29
+    expect(one.chroma[5 * 12]).toBe(1);
+    expect(one.chroma[4 * 12]).toBe(0);
+    expect(one.chroma[29 * 12]).toBe(1);
+    expect(one.chroma[30 * 12]).toBe(0);
   });
 
   it("finds ensemble gaps and fermatas in quarter positions", () => {

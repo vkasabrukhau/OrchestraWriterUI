@@ -28,6 +28,10 @@ export default defineConfig({
         command: process.env.CI ? "npm run start" : "npm run dev",
         url: `${baseURL}/api/health`,
         reuseExistingServer: !process.env.CI,
+        // New libraries start empty in the tests (the temporary sample project
+        // is on by default; tests/api turns it off the same way). A dev server
+        // that is already running must be started with SAMPLE_PROJECT=off too.
+        env: { SAMPLE_PROJECT: "off" },
         timeout: 180_000,
       },
 });

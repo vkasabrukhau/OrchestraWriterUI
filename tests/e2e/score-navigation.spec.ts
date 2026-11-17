@@ -1,4 +1,4 @@
-import { buildProject, expect, open, test } from "./helpers";
+import { buildProject, expect, open, test, startSync } from "./helpers";
 
 /**
  * The engraved score panel as a follower (ADR 0016): the score is laid out
@@ -15,6 +15,7 @@ test("Sync: start point, note-level markers, passage repeat, Go to and browsing 
 
   const project = await buildProject(page.request, { recording: true });
   await open(page, `/projects/${project.id}/sync`);
+  await startSync(page);
   await expect(page.getByText(/^\d+% average confidence$/)).toBeVisible({ timeout: 90_000 });
 
   const panel = page.getByRole("region", { name: "Score" });
